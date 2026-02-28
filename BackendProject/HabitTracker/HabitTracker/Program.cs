@@ -11,10 +11,18 @@ namespace HabitTracker
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // 1. ОДИН БЛОК CORS
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowReactApp", policy =>
+                {
+                    policy.WithOrigins("http://localhost:5173")
+                          .AllowAnyHeader()
+                          .AllowAnyMethod();
+                });
+            });
 
             var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-
-            // Спеціальне налаштування для Postgres Enums
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
             dataSourceBuilder.MapEnum<FrequencyType>();
             dataSourceBuilder.MapEnum<ProposalStatus>();
@@ -23,38 +31,24 @@ namespace HabitTracker
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(dataSource));
 
-
-            builder.Services.AddCors(options =>
-            {
-                options.AddDefaultPolicy(policy =>
-                {
-                    policy.WithOrigins("http://localhost:3000") // Адреса вашого React-додатку
-                          .AllowAnyHeader()
-                          .AllowAnyMethod();
-                });
-            });
-
-            // Add services to the container.
-
             builder.Services.AddControllers();
-            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi();
+            builder.Services.AddOpenApi(); // Для .NET 9
 
             var app = builder.Build();
 
-            // Configure the HTTP request pipeline.
+            // 2. ПРАВИЛЬНИЙ ПОРЯДОК MIDDLEWARE
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();
             }
 
+            // CORS МАЄ БУТИ ПЕРШИМ, щоб перехоплювати запити до редіректів
+            app.UseCors("AllowReactApp");
+
+            // Тимчасово закоментуйте це, якщо будуть проблеми з HTTPS на Mac
             app.UseHttpsRedirection();
 
-            app.UseCors();
-
             app.UseAuthorization();
-
-
             app.MapControllers();
 
             app.Run();
