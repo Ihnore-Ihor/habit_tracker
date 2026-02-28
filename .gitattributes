@@ -1,0 +1,8 @@
+# Змусити Git завжди використовувати LF для всіх текстових файлів при коміті
+* text=auto eol=lf
+
+# Специфічно для C# та SQL
+*.cs text diff=csharp
+*.sln text eol=crlf
+*.sql text eol=lf
+*.yml text eol=lf
