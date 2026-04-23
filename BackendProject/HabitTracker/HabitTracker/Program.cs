@@ -1,4 +1,4 @@
-
+using HabitTracker.Data;
 using HabitTracker.Models;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -11,7 +11,7 @@ namespace HabitTracker
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // 1. ОДИН БЛОК CORS
+            // CORS for the React dev server.
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowReactApp", policy =>
@@ -22,30 +22,31 @@ namespace HabitTracker
                 });
             });
 
+            // Build a shared NpgsqlDataSource with every PostgreSQL enum pre-registered.
+            // The DataSource вЂ” not the raw connection string вЂ” is what AppDbContext binds to.
             var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
             dataSourceBuilder.MapEnum<FrequencyType>();
             dataSourceBuilder.MapEnum<ProposalStatus>();
+            dataSourceBuilder.MapEnum<ConditionKey>();
             var dataSource = dataSourceBuilder.Build();
 
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(dataSource));
 
             builder.Services.AddControllers();
-            builder.Services.AddOpenApi(); // Для .NET 9
+            builder.Services.AddOpenApi();
 
             var app = builder.Build();
 
-            // 2. ПРАВИЛЬНИЙ ПОРЯДОК MIDDLEWARE
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();
             }
 
-            // CORS МАЄ БУТИ ПЕРШИМ, щоб перехоплювати запити до редіректів
             app.UseCors("AllowReactApp");
 
-            // Тимчасово закоментуйте це, якщо будуть проблеми з HTTPS на Mac
+            // Kept on so Mac dev setups see a consistent HTTPS redirect вЂ” frontend must follow redirects.
             app.UseHttpsRedirection();
 
             app.UseAuthorization();
