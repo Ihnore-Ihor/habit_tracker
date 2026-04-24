@@ -1,11 +1,15 @@
 using HabitTracker.Data;
 using HabitTracker.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace HabitTracker.Application.Gamification.Evaluators
 {
     /// <summary>
-    /// Skeleton for <see cref="ConditionKey.AFFECT_HIGH_DOMINANCE"/> — count of PAD entries whose
-    /// <c>DominanceScore</c> exceeds a threshold over a given horizon. Threshold + horizon pending.
+    /// Evaluates <see cref="ConditionKey.AFFECT_HIGH_DOMINANCE"/> — lifetime count of PAD entries
+    /// the user logged while feeling highly in control (<c>DominanceScore &gt;= 3</c> on the
+    /// −5..+5 scale). Unlocks when that count reaches <c>Achievement.TargetValue</c>.
+    ///
+    /// <para><b>Trigger event.</b> <see cref="Domain.Events.AffectEntryRecordedEvent"/>.</para>
     /// </summary>
     public sealed class AffectHighDominanceEvaluator : IAchievementEvaluator
     {
@@ -18,9 +22,22 @@ namespace HabitTracker.Application.Gamification.Evaluators
 
         public ConditionKey Key => ConditionKey.AFFECT_HIGH_DOMINANCE;
 
-        // TODO: Implement once the business formula for AFFECT_HIGH_DOMINANCE is finalised.
-        public Task EvaluateAsync(EvaluationContext context, CancellationToken ct) =>
-            throw new NotImplementedException(
-                "AFFECT_HIGH_DOMINANCE evaluator not yet implemented — pending business formula.");
+        public async Task EvaluateAsync(EvaluationContext context, CancellationToken ct)
+        {
+            var target = context.Achievement.TargetValue;
+            if (target is null or <= 0)
+                return;
+
+            int count = await _db.AffectEntries
+                .CountAsync(a => a.UserId == context.UserId && a.DominanceScore >= 3, ct);
+
+            context.Progress.CurrentProgress = Math.Min(count, target.Value);
+
+            if (count >= target.Value && !context.Progress.IsUnlocked)
+            {
+                context.Progress.IsUnlocked = true;
+                context.Progress.UnlockedAt = DateTime.UtcNow;
+            }
+        }
     }
 }

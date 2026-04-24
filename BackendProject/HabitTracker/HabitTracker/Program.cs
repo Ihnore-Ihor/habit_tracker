@@ -1,4 +1,5 @@
 using HabitTracker.Data;
+using HabitTracker.Infrastructure.DependencyInjection;
 using HabitTracker.Models;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -36,6 +37,8 @@ namespace HabitTracker
 
             builder.Services.AddControllers();
             builder.Services.AddOpenApi();
+            
+            builder.Services.AddGamification(builder.Configuration);
 
             var app = builder.Build();
 
