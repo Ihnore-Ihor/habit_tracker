@@ -1,5 +1,6 @@
 using System.Text;
 using HabitTracker.Domain.Entities;
+using HabitTracker.Infrastructure.Outbox;
 using HabitTracker.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -40,6 +41,9 @@ namespace HabitTracker.Data
         public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
         public DbSet<AnalystProposal> AnalystProposals => Set<AnalystProposal>();
 
+        /// <summary>Transactional outbox — populated by <c>IOutboxWriter</c>, drained by <c>OutboxDispatcherService</c>.</summary>
+        public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -66,7 +70,11 @@ namespace HabitTracker.Data
             ConfigureUserAchievement(modelBuilder);
             ConfigureAnalystProposal(modelBuilder);
 
-            // 3. Cross-cutting conventions — must run LAST so explicit per-entity names and types win.
+            // 3. Infrastructure tables (non-domain) — use IEntityTypeConfiguration to keep
+            //    infra concerns out of the domain-centric DbContext body.
+            modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration());
+
+            // 4. Cross-cutting conventions — must run LAST so explicit per-entity names and types win.
             ApplyDatabaseConventions(modelBuilder);
         }
 
