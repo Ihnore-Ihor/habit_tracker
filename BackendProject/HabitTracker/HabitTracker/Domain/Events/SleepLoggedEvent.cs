@@ -6,8 +6,8 @@
 public sealed record SleepLoggedEvent(
     Guid UserId, 
     Guid SleepLogId, 
-    DateTimeOffset SleepStart, 
-    DateTimeOffset SleepEnd, 
+    DateTime SleepStart, 
+    DateTime SleepEnd, 
     int SleepQuality,
     List<string>? Tags) : IDomainEvent
 {

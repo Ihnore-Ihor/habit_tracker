@@ -6,7 +6,7 @@
 public sealed record HabitExecutedEvent(
     Guid UserId, 
     Guid UserHabitId, 
-    DateTimeOffset ExecutionTime, 
+    DateTime ExecutionTime, 
     decimal? LoggedValue) : IDomainEvent
 {
     public DateTime OccurredAtUtc { get; } = DateTime.UtcNow;

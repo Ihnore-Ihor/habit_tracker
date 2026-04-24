@@ -1,3 +1,4 @@
+using HabitTracker.Application.Services;
 using HabitTracker.Data;
 using HabitTracker.Infrastructure.DependencyInjection;
 using HabitTracker.Models;
@@ -37,8 +38,9 @@ namespace HabitTracker
 
             builder.Services.AddControllers();
             builder.Services.AddOpenApi();
-            
+            builder.Services.AddScoped<IHabitExecutionService, HabitExecutionService>();
             builder.Services.AddGamification(builder.Configuration);
+            builder.Services.AddScoped<ISleepTrackingService, SleepTrackingService>();
 
             var app = builder.Build();
 

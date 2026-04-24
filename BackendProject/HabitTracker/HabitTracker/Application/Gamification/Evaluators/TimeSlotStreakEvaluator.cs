@@ -59,7 +59,7 @@ namespace HabitTracker.Application.Gamification.Evaluators
             // ExecutionTime is the actual moment the habit was performed (can be retroactive
             // up to 30 days), not when this event happened to be raised. The user's spec is explicit
             // about using ExecutionTime here.
-            var localHour = ToLocalTimeOfDay(executed.ExecutionTime.UtcDateTime, info.Timezone).Hour;
+            var localHour = ToLocalTimeOfDay(executed.ExecutionTime, info.Timezone).Hour;
             bool inSlot = IsInSlot(info.Slot, localHour);
 
             if (inSlot)

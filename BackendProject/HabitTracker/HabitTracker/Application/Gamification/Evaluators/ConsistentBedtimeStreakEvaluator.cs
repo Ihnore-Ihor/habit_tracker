@@ -61,7 +61,7 @@ namespace HabitTracker.Application.Gamification.Evaluators
                 return;
 
             var idealBedtime = SubtractHours(profile.TargetWakeTime, profile.BaseSleepHours);
-            var actualBedtime = ToLocalTimeOfDay(slept.SleepStart.UtcDateTime, profile.Timezone);
+            var actualBedtime = ToLocalTimeOfDay(slept.SleepStart, profile.Timezone);
 
             int diffMinutes = WrapAroundMinuteDistance(actualBedtime, idealBedtime);
 
