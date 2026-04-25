@@ -1,6 +1,9 @@
 using System.Text;
+using HabitTracker.Application.Services.Affect;
 using HabitTracker.Application.Services.Auth;
 using HabitTracker.Application.Services.Catalog;
+using HabitTracker.Application.Services.Sleep;
+using HabitTracker.Application.Services.UserHabits;
 using HabitTracker.Infrastructure.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
@@ -71,6 +74,15 @@ namespace HabitTracker.Infrastructure.DependencyInjection
         public static IServiceCollection AddCatalog(this IServiceCollection services)
         {
             services.AddScoped<ICatalogService, CatalogService>();
+            return services;
+        }
+
+        /// <summary>Registers Phase 2 user-facing services (UserHabit, Sleep, Affect).</summary>
+        public static IServiceCollection AddUserOperations(this IServiceCollection services)
+        {
+            services.AddScoped<IUserHabitService, UserHabitService>();
+            services.AddScoped<ISleepTrackingService, SleepTrackingService>();
+            services.AddScoped<IAffectTrackingService, AffectTrackingService>();
             return services;
         }
     }

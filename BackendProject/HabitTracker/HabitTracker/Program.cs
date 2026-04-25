@@ -1,4 +1,3 @@
-using HabitTracker.Application.Services;
 using HabitTracker.Data;
 using HabitTracker.Infrastructure.DependencyInjection;
 using HabitTracker.Models;
@@ -38,13 +37,14 @@ namespace HabitTracker
 
             builder.Services.AddControllers();
             builder.Services.AddOpenApi();
-            builder.Services.AddScoped<IHabitExecutionService, HabitExecutionService>();
             builder.Services.AddGamification(builder.Configuration);
-            builder.Services.AddScoped<ISleepTrackingService, SleepTrackingService>();
 
             // Phase 1 — Security & Catalog.
             builder.Services.AddAuth(builder.Configuration);
             builder.Services.AddCatalog();
+
+            // Phase 2 — User operations (Habits, Sleep, Affect).
+            builder.Services.AddUserOperations();
 
             var app = builder.Build();
 
