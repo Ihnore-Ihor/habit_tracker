@@ -1,5 +1,6 @@
 using System.Text;
 using HabitTracker.Application.Services.Affect;
+using HabitTracker.Application.Services.Analytics;
 using HabitTracker.Application.Services.Auth;
 using HabitTracker.Application.Services.Catalog;
 using HabitTracker.Application.Services.Sleep;
@@ -83,6 +84,13 @@ namespace HabitTracker.Infrastructure.DependencyInjection
             services.AddScoped<IUserHabitService, UserHabitService>();
             services.AddScoped<ISleepTrackingService, SleepTrackingService>();
             services.AddScoped<IAffectTrackingService, AffectTrackingService>();
+            return services;
+        }
+
+        /// <summary>Registers the Phase 3 read-only analytics service (mini-CQRS over the SQL views).</summary>
+        public static IServiceCollection AddAnalytics(this IServiceCollection services)
+        {
+            services.AddScoped<IAnalyticsService, AnalyticsService>();
             return services;
         }
     }

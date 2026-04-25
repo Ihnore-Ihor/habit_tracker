@@ -46,6 +46,9 @@ namespace HabitTracker
             // Phase 2 — User operations (Habits, Sleep, Affect).
             builder.Services.AddUserOperations();
 
+            // Phase 3 — Read-only analytics (CQRS over the SQL views).
+            builder.Services.AddAnalytics();
+
             var app = builder.Build();
 
             if (app.Environment.IsDevelopment())
