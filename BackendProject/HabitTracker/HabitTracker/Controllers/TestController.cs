@@ -3,7 +3,7 @@
 namespace HabitTracker.Controllers
 {
     [ApiController]
-    [Route("test")] // Або [Route("[controller]")] якщо назва файлу TestController
+    [Route("test")]
     public class TestController : ControllerBase
     {
         [HttpGet]
