@@ -42,6 +42,10 @@ namespace HabitTracker
             builder.Services.AddGamification(builder.Configuration);
             builder.Services.AddScoped<ISleepTrackingService, SleepTrackingService>();
 
+            // Phase 1 — Security & Catalog.
+            builder.Services.AddAuth(builder.Configuration);
+            builder.Services.AddCatalog();
+
             var app = builder.Build();
 
             if (app.Environment.IsDevelopment())
@@ -54,6 +58,9 @@ namespace HabitTracker
             // Kept on so Mac dev setups see a consistent HTTPS redirect — frontend must follow redirects.
             app.UseHttpsRedirection();
 
+            // Authentication MUST run before Authorization so the role claim is on the principal
+            // by the time [Authorize(Roles = "ContentManager")] is evaluated.
+            app.UseAuthentication();
             app.UseAuthorization();
             app.MapControllers();
 
