@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --rice: #f9f6ee;
+    --ink: #2d2d2d;
+    --jade: #8fbc8f;
+    --jade-deep: #6b9b6b;
+    --crystal: rgba(168, 213, 226, 0.5);
+    --garnet: #c85a54;
+    --diamond: #b8a888;
+
+    /* default frame, overridable via inline --frame-url */
+    --frame-url: none;
+    --frame-slice: 60;
+    --frame-width: 22px;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--rice);
+    background-image:
+      radial-gradient(
+        circle at 18% 8%,
+        rgba(184, 168, 136, 0.1),
+        transparent 55%
+      ),
+      radial-gradient(
+        circle at 82% 92%,
+        rgba(143, 188, 143, 0.08),
+        transparent 60%
+      ),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.18  0 0 0 0 0.16  0 0 0 0 0.12  0 0 0 0.06 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior-y: none;
+  }
+
+  /* Mobile: prevent horizontal scroll while permitting full-bleed designs */
+  body,
+  #root {
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: rgba(143, 188, 143, 0.35);
+    color: var(--ink);
+  }
+}
+
+@layer components {
+  /* Reusable ornate Chinese frame (border-image, corners never stretch).
+     Set --frame-url on the element (inline style) to swap between frames 1..21.
+     Slice/width are tuned so the SVG corners stay crisp on small screens. */
+  .chinese-frame {
+    position: relative;
+    border-image-width: var(--frame-width);
+    border-image-outset: 0;
+    backdrop-filter: blur(2px);
+  }
+
+  /* Slightly chunkier variant for hero/auth frames */
+  .chinese-frame--lg {
+    --frame-width: 32px;
+    --frame-slice: 70;
+  }
+
+  /* A subtle "ink stamp" red seal */
+  .ink-seal {
+    color: #fff;
+    background: var(--garnet);
+    box-shadow:
+      inset 0 0 0 2px rgba(255, 255, 255, 0.35),
+      0 6px 14px -8px rgba(110, 31, 28, 0.6);
+    border-radius: 6px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* Ink-brushed underline used under headings */
+  .ink-stroke {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(45, 45, 45, 0.6) 18%,
+      rgba(45, 45, 45, 0.85) 50%,
+      rgba(45, 45, 45, 0.6) 82%,
+      transparent 100%
+    );
+  }
+
+  /* Soft pavilion glow used behind hero numerals */
+  .pavilion-glow-jade {
+    box-shadow: 0 0 60px -10px rgba(143, 188, 143, 0.45);
+  }
+  .pavilion-glow-garnet {
+    box-shadow: 0 0 60px -10px rgba(200, 90, 84, 0.45);
+  }
+  .pavilion-glow-diamond {
+    box-shadow: 0 0 60px -10px rgba(184, 168, 136, 0.45);
+  }
+}
+
+@layer utilities {
+  /* Color-tint any inline SVG/PNG to a Pavilion color via mask */
+  .tint-jade {
+    color: var(--jade-deep);
+  }
+  .tint-garnet {
+    color: var(--garnet);
+  }
+  .tint-diamond {
+    color: var(--diamond);
+  }
+  .tint-crystal {
+    color: #6fa9bc;
+  }
+
+  .blend-multiply {
+    mix-blend-mode: multiply;
+  }
+  .blend-overlay {
+    mix-blend-mode: overlay;
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

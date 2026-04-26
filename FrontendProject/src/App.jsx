@@ -1,25 +1,9 @@
-import { useEffect, useState } from "react";
+import AppRouter from './routes/AppRouter.jsx';
 
-function App() {
-  const [message, setMessage] = useState("Завантаження...");
-
-  useEffect(() => {
-    // Вкажіть тут порт вашого бекенду (з Swagger)
-    fetch("https://localhost:7152/test")
-      .then((res) => res.json())
-      .then((data) => setMessage(data.message))
-      .catch((err) => {
-        console.error(err); // Тепер err використано, і помилка зникне
-        setMessage("Помилка підключення до API");
-      });
-  }, []);
-
+export default function App() {
   return (
-    <div>
-      <h1>Habit Tracker</h1>
-      <p>Статус API: {message}</p>
+    <div className="min-h-screen w-full text-ink antialiased">
+      <AppRouter />
     </div>
   );
 }
-
-export default App;
