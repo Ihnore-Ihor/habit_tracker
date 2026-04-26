@@ -92,7 +92,7 @@ CREATE MATERIALIZED VIEW mvw_analyst_proposal_impact AS
 WITH implemented AS (
     SELECT id, habit_id, created_at
     FROM analyst_proposals
-    WHERE status = 'implemented'::proposal_status
+    WHERE status = 1 -- 0=pending, 1=implemented, 2=rejected
       AND habit_id IS NOT NULL
 ),
 before_after AS (

@@ -55,24 +55,41 @@ $$ LANGUAGE plpgsql;
 -- The "day passed without execution" side is handled by
 -- sp_daily_streak_maintenance (06_StoredProcedures.sql).
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_on_habit_execution()
+CREATE OR REPLACE FUNCTION public.fn_on_habit_execution()
 RETURNS TRIGGER AS $$
 DECLARE
     v_is_negative BOOLEAN;
+    v_target_value NUMERIC;
+    v_sum_prior NUMERIC;
+    v_sum_total NUMERIC;
 BEGIN
-    SELECT is_negative INTO v_is_negative
-    FROM user_habits
-    WHERE id = NEW.user_habit_id;
+    SELECT is_negative, COALESCE(target_value, 1) INTO v_is_negative, v_target_value
+    FROM public.user_habits WHERE id = NEW.user_habit_id;
 
-    IF v_is_negative THEN
-        UPDATE user_habits
-        SET current_streak = 0
-        WHERE id = NEW.user_habit_id;
+    SELECT COALESCE(SUM(logged_value), 0) INTO v_sum_prior
+    FROM public.habit_executions
+    WHERE user_habit_id = NEW.user_habit_id 
+      AND DATE(execution_time AT TIME ZONE 'UTC') = DATE(NEW.execution_time AT TIME ZONE 'UTC')
+      AND id != NEW.id;
+
+    v_sum_total := v_sum_prior + NEW.logged_value;
+
+    IF v_is_negative = false THEN
+        IF v_sum_prior < v_target_value AND v_sum_total >= v_target_value THEN
+            UPDATE public.user_habits 
+            SET current_streak = current_streak + 1,
+                longest_streak = GREATEST(longest_streak, current_streak + 1)
+            WHERE id = NEW.user_habit_id;
+            
+        ELSIF v_sum_prior >= v_target_value AND v_sum_total < v_target_value THEN
+            UPDATE public.user_habits 
+            SET current_streak = GREATEST(0, current_streak - 1)
+            WHERE id = NEW.user_habit_id;
+        END IF;
     ELSE
-        UPDATE user_habits
-        SET current_streak = current_streak + 1,
-            longest_streak = GREATEST(longest_streak, current_streak + 1)
-        WHERE id = NEW.user_habit_id;
+        IF v_sum_prior <= 0 AND v_sum_total > 0 THEN
+            UPDATE public.user_habits SET current_streak = 0 WHERE id = NEW.user_habit_id;
+        END IF;
     END IF;
 
     RETURN NEW;
