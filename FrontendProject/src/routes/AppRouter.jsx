@@ -7,6 +7,7 @@ import ProtectedRoute from './ProtectedRoute.jsx';
 import Login from '../pages/auth/Login.jsx';
 import Register from '../pages/auth/Register.jsx';
 import Dashboard from '../pages/Dashboard.jsx';
+import Profile from '../pages/Profile.jsx';
 import ContentManagerHome from '../pages/ContentManagerHome.jsx';
 import AnalystHome from '../pages/AnalystHome.jsx';
 import NotFound from '../pages/NotFound.jsx';
@@ -31,6 +32,14 @@ export default function AppRouter() {
           element={
             <ProtectedRoute allow={[ROLES.USER]}>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute allow={[ROLES.USER]}>
+              <Profile />
             </ProtectedRoute>
           }
         />

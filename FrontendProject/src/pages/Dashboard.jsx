@@ -2,24 +2,112 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence, useAnimation } from 'framer-motion';
 import { useAuth } from '../context/AuthContext.jsx';
 import StreakWidget from '../components/widgets/StreakWidget.jsx';
+import BottomNav from '../components/common/BottomNav.jsx';
+import HabitFormDrawer from '../components/HabitFormDrawer.jsx';
 import bambooSingle from '../assets/bamboo-slips-single.svg';
 import { fetchUserHabits, logHabitExecution } from '../api/habits.js';
 import api from '../api/client.js';
 import ChineseFrame from '../components/common/ChineseFrame.jsx';
 
-// ─── Week strip helper ────────────────────────────────────────────────────────
+// ─── Date helpers ─────────────────────────────────────────────────────────────
 
-function buildWeek() {
+function buildWeekForDate(date) {
   const today = new Date();
-  const dow   = today.getDay();
+  today.setHours(0, 0, 0, 0);
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const dow   = d.getDay();
   const toMon = dow === 0 ? -6 : 1 - dow;
-  const mon   = new Date(today);
-  mon.setDate(today.getDate() + toMon);
+  const mon   = new Date(d);
+  mon.setDate(d.getDate() + toMon);
   return ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((letter, i) => {
-    const d = new Date(mon);
-    d.setDate(mon.getDate() + i);
-    return { letter, date: d.getDate(), today: d.toDateString() === today.toDateString() };
+    const day = new Date(mon);
+    day.setDate(mon.getDate() + i);
+    day.setHours(0, 0, 0, 0);
+    return {
+      letter,
+      date:     day.getDate(),
+      fullDate: new Date(day),
+      isToday:  day.toDateString() === today.toDateString(),
+      isFuture: day > today,
+    };
   });
+}
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
+function buildMonthCalendar(year, month) {
+  const today    = new Date();
+  today.setHours(0, 0, 0, 0);
+  const firstDay = new Date(year, month, 1);
+  const lastDay  = new Date(year, month + 1, 0);
+  // Mon-first offset: (getDay() + 6) % 7  →  Mon=0 … Sun=6
+  const offset   = (firstDay.getDay() + 6) % 7;
+
+  const days = [];
+  for (let i = offset; i > 0; i--) {
+    const d = new Date(year, month, 1 - i);
+    days.push({ fullDate: d, date: d.getDate(), inMonth: false, isToday: false, isFuture: false });
+  }
+  for (let i = 1; i <= lastDay.getDate(); i++) {
+    const d = new Date(year, month, i);
+    d.setHours(0, 0, 0, 0);
+    days.push({
+      fullDate: new Date(d), date: i, inMonth: true,
+      isToday:  d.toDateString() === today.toDateString(),
+      isFuture: d > today,
+    });
+  }
+  const trailing = (7 - (days.length % 7)) % 7;
+  for (let i = 1; i <= trailing; i++) {
+    const d = new Date(year, month + 1, i);
+    days.push({ fullDate: d, date: i, inMonth: false, isToday: false, isFuture: false });
+  }
+  return days;
+}
+
+// ─── Status computation (extracted so it can be reused on date change) ────────
+
+function computeStatusForDate(habitsData, executionsData, targetDate) {
+  const t = targetDate instanceof Date ? targetDate : new Date(targetDate);
+  const localDateStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+
+  const statusMap = {};
+
+  habitsData.forEach((h) => {
+    const dateExecs = executionsData
+      .filter((e) => {
+        if (e.userHabitId !== h.id) return false;
+        const execDate = new Date(e.executionTime);
+        const execDateStr = `${execDate.getFullYear()}-${String(execDate.getMonth() + 1).padStart(2, '0')}-${String(execDate.getDate()).padStart(2, '0')}`;
+        return execDateStr === localDateStr;
+      })
+      .sort((a, b) => new Date(b.executionTime) - new Date(a.executionTime));
+
+    const lastValue = dateExecs.length > 0 ? dateExecs[0].loggedValue : null;
+    const totalSum  = Math.max(0, dateExecs.reduce((sum, e) => sum + e.loggedValue, 0));
+    let currentStatus = 'pending';
+
+    if (h.isNegative) {
+      if (lastValue !== null && lastValue > 0) currentStatus = 'failed';
+    } else {
+      if (h.targetValue > 1) {
+        if (totalSum >= h.targetValue) currentStatus = 'done';
+      } else {
+        if (lastValue === 1) currentStatus = 'done';
+      }
+    }
+
+    statusMap[h.id] = {
+      status:      currentStatus,
+      loggedValue: h.targetValue > 1 ? totalSum : (lastValue || 0),
+    };
+  });
+
+  return statusMap;
 }
 
 // ─── Category pavilion config ─────────────────────────────────────────────────
@@ -37,9 +125,6 @@ const FALLBACK_PAVILION = {
 };
 
 // ─── Habit type resolver ──────────────────────────────────────────────────────
-// slide   → isNegative: true  (always shows SlideToFail, never a checkbox)
-// numeric → isNegative: false AND targetValue > 1
-// boolean → isNegative: false AND targetValue == null || 1
 
 function getHabitType(habit) {
   if (habit.isNegative) return 'slide';
@@ -68,10 +153,7 @@ const cardVar = {
 function CheckEmpty({ onClick, disabled }) {
   return (
     <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label="Mark as done"
+      type="button" onClick={onClick} disabled={disabled} aria-label="Mark as done"
       className="h-5 w-5 shrink-0 rounded-[4px] border-[1.5px] border-[#99A1AF] bg-[#F3F3F5] shadow-sm transition-colors active:border-jade active:bg-jade/10 disabled:opacity-40 disabled:cursor-not-allowed"
     />
   );
@@ -80,10 +162,7 @@ function CheckEmpty({ onClick, disabled }) {
 function CheckDone({ onClick, disabled }) {
   return (
     <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label="Undo completion"
+      type="button" onClick={onClick} disabled={disabled} aria-label="Undo completion"
       className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-jade shadow-sm transition-transform active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
     >
       <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
@@ -96,16 +175,9 @@ function CheckDone({ onClick, disabled }) {
 function FailedBadge({ onClick, disabled }) {
   return (
     <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label="Undo failure"
+      type="button" onClick={onClick} disabled={disabled} aria-label="Undo failure"
       className="grid h-9 w-[52px] shrink-0 place-items-center rounded-lg text-[10px] font-[500] text-garnet transition-transform active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{
-        background: 'rgba(200,90,84,0.15)',
-        outline: '0.5px rgba(200,90,84,0.40) solid',
-        outlineOffset: '-0.5px',
-      }}
+      style={{ background: 'rgba(200,90,84,0.15)', outline: '0.5px rgba(200,90,84,0.40) solid', outlineOffset: '-0.5px' }}
     >
       Failed
     </button>
@@ -117,10 +189,7 @@ function ProgressBar({ value, max, unit }) {
   return (
     <div className="mt-2 flex items-center gap-2">
       <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-ink/10">
-        <div
-          className="h-full rounded-full bg-jade transition-all duration-300"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="h-full rounded-full bg-jade transition-all duration-300" style={{ width: `${pct}%` }} />
       </div>
       <span className="whitespace-nowrap text-[11px] font-[500] text-ink-soft">
         {(value || 0).toLocaleString()}/{(max || 0).toLocaleString()}{unit ? ` ${unit}` : ''}
@@ -130,7 +199,6 @@ function ProgressBar({ value, max, unit }) {
 }
 
 // ─── Slide-to-fail ────────────────────────────────────────────────────────────
-// Only shown for isNegative habits. Dragging past 75% of the track fires onFail.
 
 function SlideToFail({ onFail, disabled }) {
   const controls  = useAnimation();
@@ -153,11 +221,7 @@ function SlideToFail({ onFail, disabled }) {
   return (
     <div
       className="relative h-8 w-[132px] shrink-0 overflow-hidden rounded-lg"
-      style={{
-        background: 'rgba(200,90,84,0.08)',
-        outline: '0.5px rgba(200,90,84,0.25) solid',
-        outlineOffset: '-0.5px',
-      }}
+      style={{ background: 'rgba(200,90,84,0.08)', outline: '0.5px rgba(200,90,84,0.25) solid', outlineOffset: '-0.5px' }}
     >
       <span className="pointer-events-none absolute inset-0 flex items-center justify-end pr-3 text-[10px] font-[500] tracking-[0.04em] text-garnet/70">
         Slide to fail →
@@ -183,10 +247,6 @@ function SlideToFail({ onFail, disabled }) {
 }
 
 // ─── Numeric habit logger ─────────────────────────────────────────────────────
-// Custom numpad — never triggers the native mobile keyboard.
-// onLog({ value: number, isSuccess: boolean })
-//   value      = the amount entered this session (sent as loggedValue to the API)
-//   isSuccess  = (currentValue + value) >= targetValue
 
 const NUMPAD_ROWS = [['7','8','9'],['4','5','6'],['1','2','3'],['⌫','0','✓']];
 
@@ -228,8 +288,6 @@ function NumericHabitLogger({ targetValue, unit, currentValue, onLog, disabled }
           {remaining.toLocaleString()}{unit ? ` ${unit}` : ''} remaining
         </p>
       )}
-
-      {/* Quick-add chips */}
       <div className="flex flex-wrap justify-center gap-2 pb-3">
         {chips.map((c) => (
           <button key={c} type="button" onClick={() => submit(c)} disabled={disabled}
@@ -244,16 +302,12 @@ function NumericHabitLogger({ targetValue, unit, currentValue, onLog, disabled }
           </button>
         )}
       </div>
-
-      {/* Value display */}
       <div className="mb-3 rounded-xl border border-ink/10 bg-ink/[0.05] px-3 py-3 text-center">
         <span className="text-[28px] font-light tabular-nums leading-none tracking-tight text-ink">
           {buf || '0'}
         </span>
         {unit && <span className="ml-1.5 text-[14px] text-ink-soft">{unit}</span>}
       </div>
-
-      {/* 4×3 numpad */}
       <div className="grid grid-cols-3 gap-2">
         {NUMPAD_ROWS.flat().map((key) => (
           <button key={key} type="button" onClick={() => handleKey(key)} disabled={disabled}
@@ -273,7 +327,7 @@ function NumericHabitLogger({ targetValue, unit, currentValue, onLog, disabled }
 
 // ─── Habit card ───────────────────────────────────────────────────────────────
 
-function HabitCard({ habit, statusInfo, isExpanded, isProcessing, onToggleExpand, onDone, onFail, onUndo, onLog }) {
+function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, onToggleExpand, onDone, onFail, onUndo, onLog, onEdit }) {
   const type    = getHabitType(habit);
   const { status, loggedValue } = statusInfo;
   const isDone    = status === 'done';
@@ -283,7 +337,11 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, onToggleExpand
   const title     = habit.customName || 'Unnamed Habit';
   const icon      = habit.iconEmoji  || (habit.isNegative ? '🚫' : '✅');
   const accentHex = habit.isNegative ? '#C85A54' : (habit.colorHex || '#8FBC8F');
-  const canExpand = type === 'numeric' && isPending;
+  // In read-only mode numeric cards don't expand
+  const canExpand = type === 'numeric' && isPending && !isReadOnly;
+
+  // Effective disabled state for interaction controls
+  const blocked = isProcessing || isReadOnly;
 
   return (
     <motion.div layout variants={cardVar} className="relative w-full drop-shadow-sm">
@@ -315,32 +373,42 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, onToggleExpand
                 )}
               </div>
 
-              {/* Action zone — stopPropagation so clicks never bubble to the expand handler */}
+              {/* Action zone */}
               <div
-                className="ml-1 flex shrink-0 items-center self-center"
+                className="ml-1 flex shrink-0 items-center gap-1.5 self-center"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Done → CheckDone fires undo. Single button, no wrapper div to prevent double-fire. */}
+                {/* Edit button — pencil icon, always available */}
+                {onEdit && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                    aria-label="Edit habit"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-ink/25 transition-colors active:bg-ink/10 active:text-ink/50"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" />
+                    </svg>
+                  </button>
+                )}
+
                 {isDone && (
                   <CheckDone
-                    disabled={isProcessing}
+                    disabled={blocked}
                     onClick={(e) => { e.stopPropagation(); onUndo(); }}
                   />
                 )}
-
-                {/* Failed → FailedBadge fires undo */}
                 {isFailed && (
                   <FailedBadge
-                    disabled={isProcessing}
+                    disabled={blocked}
                     onClick={(e) => { e.stopPropagation(); onUndo(); }}
                   />
                 )}
-
                 {isPending && (
                   <>
                     {type === 'boolean' && (
                       <CheckEmpty
-                        disabled={isProcessing}
+                        disabled={blocked}
                         onClick={(e) => { e.stopPropagation(); onDone(); }}
                       />
                     )}
@@ -349,7 +417,7 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, onToggleExpand
                         type="button"
                         animate={{ rotate: isExpanded ? 45 : 0 }}
                         transition={{ type: 'spring', stiffness: 320, damping: 24 }}
-                        disabled={isProcessing}
+                        disabled={blocked}
                         onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
                         className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{ background: `${accentHex}25`, border: `1px solid ${accentHex}50` }}
@@ -358,14 +426,14 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, onToggleExpand
                       </motion.button>
                     )}
                     {type === 'slide' && (
-                      <SlideToFail onFail={onFail} disabled={isProcessing} />
+                      <SlideToFail onFail={onFail} disabled={blocked} />
                     )}
                   </>
                 )}
               </div>
             </div>
 
-            {/* Numeric logger — springs open/closed */}
+            {/* Numeric logger panel */}
             <AnimatePresence initial={false}>
               {isExpanded && canExpand && (
                 <motion.div
@@ -397,7 +465,7 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, onToggleExpand
 
 // ─── Pavilion section ─────────────────────────────────────────────────────────
 
-function PavilionSection({ config, habits, habitStatus, expandedId, processingHabits, onDone, onFail, onUndo, onLog, onToggleExpand }) {
+function PavilionSection({ config, habits, habitStatus, expandedId, processingHabits, isReadOnly, onDone, onFail, onUndo, onLog, onToggleExpand, onEdit }) {
   return (
     <motion.section
       variants={sectionVar}
@@ -420,11 +488,13 @@ function PavilionSection({ config, habits, habitStatus, expandedId, processingHa
             statusInfo={habitStatus[h.id] || { status: 'pending', loggedValue: 0 }}
             isExpanded={expandedId === h.id}
             isProcessing={processingHabits.has(h.id)}
+            isReadOnly={isReadOnly}
             onToggleExpand={() => onToggleExpand(h.id)}
             onDone={() => onDone(h.id)}
             onFail={() => onFail(h.id)}
             onUndo={() => onUndo(h.id)}
             onLog={(payload) => onLog(h.id, payload)}
+            onEdit={() => onEdit(h)}
           />
         ))}
       </motion.div>
@@ -432,21 +502,159 @@ function PavilionSection({ config, habits, habitStatus, expandedId, processingHa
   );
 }
 
-// ─── Week day strip ───────────────────────────────────────────────────────────
+// ─── Week strip with date-selection and expandable month calendar ─────────────
 
-function WeekStrip({ days }) {
+function WeekStrip({ selectedDate, onSelectDate }) {
+  const [showCal,   setShowCal]   = useState(false);
+  const [viewYear,  setViewYear]  = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
+
+  // Sync the calendar view to match the selected date's month whenever it changes
+  useEffect(() => {
+    setViewYear(selectedDate.getFullYear());
+    setViewMonth(selectedDate.getMonth());
+  }, [selectedDate]);
+
+  const today    = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
+  const weekDays = useMemo(() => buildWeekForDate(selectedDate), [selectedDate]);
+  const calDays  = useMemo(() => buildMonthCalendar(viewYear, viewMonth), [viewYear, viewMonth]);
+
+  const isSameDay  = (a, b) => a.toDateString() === b.toDateString();
+  const isSelected = (d)    => isSameDay(d, selectedDate);
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
+    else setViewMonth((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); }
+    else setViewMonth((m) => m + 1);
+  };
+
+  const handlePickDay = (fullDate) => {
+    onSelectDate(fullDate);
+    setShowCal(false);
+  };
+
   return (
-    <div className="flex items-center justify-between">
-      {days.map((d, i) => (
-        <div key={i} className="flex flex-col items-center gap-1">
-          <span className={`text-[9px] font-[500] uppercase tracking-[0.02em] ${d.today ? 'text-jade-deep' : 'text-[#99A1AF]'}`}>
-            {d.letter}
-          </span>
-          <div className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-[500] transition-colors ${d.today ? 'bg-jade text-white shadow-sm' : 'text-[#4A5565]'}`}>
-            {d.date}
-          </div>
-        </div>
-      ))}
+    <div>
+      {/* ── 7-day row ─────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        {weekDays.map((d, i) => {
+          const sel = isSelected(d.fullDate);
+          const tod = d.isToday;
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onSelectDate(d.fullDate)}
+              className={`flex flex-col items-center gap-1 ${d.isFuture ? 'opacity-50' : ''}`}
+            >
+              <span className={`text-[9px] font-[500] uppercase tracking-[0.02em] ${sel || tod ? 'text-jade-deep' : 'text-[#99A1AF]'}`}>
+                {d.letter}
+              </span>
+              <div className={[
+                'relative flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-[500] transition-colors',
+                sel  ? 'bg-jade text-white shadow-sm' :
+                tod  ? 'border border-jade text-jade-deep' :
+                       'text-[#4A5565]',
+              ].join(' ')}>
+                {d.date}
+                {/* Today dot when today is NOT selected */}
+                {tod && !sel && (
+                  <span className="absolute -bottom-[5px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-jade" />
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Expand toggle ─────────────────────────────────────────── */}
+      <button
+        type="button"
+        onClick={() => setShowCal((s) => !s)}
+        aria-label={showCal ? 'Collapse calendar' : 'Expand calendar'}
+        className="mt-2 flex w-full items-center justify-center gap-2 py-0.5 opacity-60 transition-opacity hover:opacity-100"
+      >
+        <div className="h-px w-8 bg-ink/20" />
+        <motion.div
+          animate={{ rotate: showCal ? 180 : 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#99A1AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        </motion.div>
+        <div className="h-px w-8 bg-ink/20" />
+      </button>
+
+      {/* ── Expandable month calendar ──────────────────────────────── */}
+      <AnimatePresence initial={false}>
+        {showCal && (
+          <motion.div
+            key="cal"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 32 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2 rounded-2xl border border-ink/[0.08] bg-white/60 px-3 py-3">
+              {/* Month navigation */}
+              <div className="mb-2 flex items-center justify-between">
+                <button onClick={prevMonth}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-ink/[0.06] text-ink-mute transition-colors active:bg-ink/10">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6.5 2 3 5 6.5 8" />
+                  </svg>
+                </button>
+                <span className="text-[12px] font-[600] text-ink">
+                  {MONTH_NAMES[viewMonth]} {viewYear}
+                </span>
+                <button onClick={nextMonth}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-ink/[0.06] text-ink-mute transition-colors active:bg-ink/10">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3.5 2 7 5 3.5 8" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Day-of-week headers */}
+              <div className="mb-1 grid grid-cols-7 gap-0.5">
+                {['M','T','W','T','F','S','S'].map((l, i) => (
+                  <div key={i} className="text-center text-[9px] font-[500] uppercase tracking-[0.04em] text-[#99A1AF]">{l}</div>
+                ))}
+              </div>
+
+              {/* Calendar grid */}
+              <div className="grid grid-cols-7 gap-0.5">
+                {calDays.map((d, i) => {
+                  const sel = d.inMonth && isSelected(d.fullDate);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={!d.inMonth}
+                      onClick={() => d.inMonth && handlePickDay(d.fullDate)}
+                      className={[
+                        'flex h-7 w-full items-center justify-center rounded-full text-[11px] font-[500] transition-colors',
+                        !d.inMonth  ? 'invisible pointer-events-none' :
+                        sel         ? 'bg-jade text-white shadow-sm' :
+                        d.isToday   ? 'border border-jade text-jade-deep' :
+                        d.isFuture  ? 'text-[#4A5565] opacity-40' :
+                                      'text-[#4A5565] active:bg-ink/10',
+                      ].join(' ')}
+                    >
+                      {d.inMonth ? d.date : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -508,157 +716,114 @@ function EmptyState() {
   );
 }
 
-// ─── Bottom navigation ────────────────────────────────────────────────────────
-
-const NAV_ITEMS = [
-  { id: 'habits',    label: 'Habits',
-    Icon: () => <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="6" height="6" rx="1.5" /><rect x="11" y="3" width="6" height="6" rx="1.5" /><rect x="3" y="11" width="6" height="6" rx="1.5" /><rect x="11" y="11" width="6" height="6" rx="1.5" /></svg> },
-  { id: 'sleep',     label: 'Sleep/Mood',
-    Icon: () => <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M14 3.5A7 7 0 1 1 4 14a5.5 5.5 0 0 0 10-10.5z" /></svg> },
-  { id: 'awards',    label: 'Awards',
-    Icon: () => <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="7.5" r="4.5" /><path d="M7 11.5l-2 5 5-1.5 5 1.5-2-5" /></svg> },
-  { id: 'analytics', label: 'Analytics',
-    Icon: () => <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><polyline points="3,15 7,9 11,12 17,4" /></svg> },
-  { id: 'profile',   label: 'Profile',
-    Icon: () => <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="10" cy="7" r="3" /><path d="M4 18a6 6 0 0 1 12 0" /></svg> },
-];
-
-function BottomNav({ active, onChange }) {
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 safe-bottom">
-      <div className="mx-auto max-w-md px-3 pb-2">
-        <div
-          className="flex items-center rounded-2xl bg-white/70 px-1 py-1.5 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] backdrop-blur-md"
-          style={{ outline: '0.5px rgba(255,255,255,0.40) solid', outlineOffset: '-0.5px' }}
-        >
-          {NAV_ITEMS.map((item) => {
-            const { id, label } = item;
-            const NavIcon = item.Icon;
-            const isActive = id === active;
-            return (
-              <button key={id} onClick={() => onChange(id)}
-                className={['flex flex-1 flex-col items-center gap-[5px] rounded-xl py-2 transition-colors', isActive ? 'bg-jade/[0.15]' : ''].join(' ')}>
-                <span className={isActive ? 'text-jade-deep' : 'text-[#6A7282]'}>
-                  <NavIcon />
-                </span>
-                <span className={['text-[10px] leading-none tracking-[0.01em]', isActive ? 'font-[600] text-jade-deep' : 'font-[500] text-[#6A7282]'].join(' ')}>
-                  {label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </nav>
-  );
-}
-
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   useAuth();
-  const days = useMemo(() => buildWeek(), []);
-  const [navActive, setNavActive] = useState('habits');
 
-  const [habits, setHabits]         = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [fetchError, setFetchError] = useState('');
+  // ── Date selection ────────────────────────────────────────────────────────
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  });
 
-  // Per-habit UI state: { [id]: { status: 'pending'|'done'|'failed', loggedValue: number } }
+  const today = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  }, []);
+
+  const isTodaySelected = useMemo(() => {
+    const s = new Date(selectedDate); s.setHours(0, 0, 0, 0);
+    return s.getTime() === today.getTime();
+  }, [selectedDate, today]);
+
+  // Future guard: viewing a date past today → read-only
+  const isReadOnly = useMemo(() => {
+    const s = new Date(selectedDate); s.setHours(0, 0, 0, 0);
+    return s > today;
+  }, [selectedDate, today]);
+
+  // ── Habit & execution state ───────────────────────────────────────────────
+  const [habits,        setHabits]        = useState([]);
+  const [allExecutions, setAllExecutions] = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [fetchError,    setFetchError]    = useState('');
+
   const [habitStatus, setHabitStatus] = useState({});
-  // Ref mirrors state so async handlers always read the latest snapshot.
-  const habitStatusRef = useRef(habitStatus);
-  useEffect(() => { habitStatusRef.current = habitStatus; }, [habitStatus]);
+  const habitStatusRef   = useRef(habitStatus);
+  const habitsRef        = useRef(habits);
+  const allExecutionsRef = useRef(allExecutions);
+  const selectedDateRef  = useRef(selectedDate);
 
-  const [expandedId, setExpandedId] = useState(null);
-  // Set of habitIds currently awaiting an API response — prevents double-fire.
+  useEffect(() => { habitStatusRef.current   = habitStatus;   }, [habitStatus]);
+  useEffect(() => { habitsRef.current        = habits;        }, [habits]);
+  useEffect(() => { allExecutionsRef.current = allExecutions; }, [allExecutions]);
+  useEffect(() => { selectedDateRef.current  = selectedDate;  }, [selectedDate]);
+
+  const [expandedId,       setExpandedId]       = useState(null);
   const [processingHabits, setProcessingHabits] = useState(new Set());
 
-  const lockHabit   = useCallback((id) => setProcessingHabits((s) => new Set(s).add(id)), []);
-  const unlockHabit = useCallback((id) => setProcessingHabits((s) => { const n = new Set(s); n.delete(id); return n; }), []);
+  // ── Drawer state ──────────────────────────────────────────────────────────
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editHabit,  setEditHabit]  = useState(null);
 
+  const openAddDrawer  = useCallback(() => { setEditHabit(null);  setDrawerOpen(true); }, []);
+  const openEditDrawer = useCallback((h) => { setEditHabit(h);    setDrawerOpen(true); }, []);
+  const closeDrawer    = useCallback(() => { setDrawerOpen(false); }, []);
+
+  // ── Yin/yang streak counts ────────────────────────────────────────────────
   const { yinCount, yangCount } = useMemo(() => {
-    let yin = 0; // Avoid
-    let yang = 0; // Good
+    let yin = 0; let yang = 0;
     habits.forEach((h) => {
-      // Беремо тільки чистий стрік з бази, жодних локальних маніпуляцій
-      if (h.isNegative) yin += (h.currentStreak || 0);
-      else yang += (h.currentStreak || 0);
+      if (h.isNegative) yin  += (h.currentStreak || 0);
+      else              yang += (h.currentStreak || 0);
     });
     return { yinCount: yin, yangCount: yang };
   }, [habits]);
 
-  // Завантаження даних
-  useEffect(() => {
-    Promise.all([
+  // ── Data loading ──────────────────────────────────────────────────────────
+  // refreshData: fetches fresh habits + executions, recomputes status for
+  // whatever date is current at call time (via selectedDateRef).
+  const refreshData = useCallback(async () => {
+    const [habitsData, executionsData] = await Promise.all([
       fetchUserHabits(),
-      api.get('/api/user-habits/executions/recent?take=100').then(r => r.data).catch(() => [])
-    ])
-      .then(([habitsData, executionsData]) => {
-        setHabits(habitsData);
-        
-        const initialStatus = {};
-        const todayStr = new Date().toISOString().split('T')[0];
+      api.get('/api/user-habits/executions/recent?take=500').then((r) => r.data).catch(() => []),
+    ]);
+    setHabits(habitsData);
+    setAllExecutions(executionsData);
+    setHabitStatus(computeStatusForDate(habitsData, executionsData, selectedDateRef.current));
+  }, []); // stable — uses ref for date
 
-        habitsData.forEach(h => {
-           // 1. Беремо всі записи за сьогодні для цієї звички
-           const todayExecs = executionsData
-             .filter(e => e.userHabitId === h.id && e.executionTime.startsWith(todayStr))
-             // 2. Сортуємо: найсвіжіші зверху
-             .sort((a, b) => new Date(b.executionTime) - new Date(a.executionTime));
-           
-           // 3. Отримуємо останнє значення, яке ввів користувач (або null, якщо нічого не було)
-           const lastValue = todayExecs.length > 0 ? todayExecs[0].loggedValue : null;
-           
-           // 4. Сума нам потрібна ТІЛЬКИ для прогрес-бару числових звичок.
-           // Math.max guards against compensating records making the local total negative.
-           const totalSum = Math.max(0, todayExecs.reduce((sum, e) => sum + e.loggedValue, 0));
-
-           let currentStatus = 'pending';
-
-           if (h.isNegative) {
-               // ПОГАНА: якщо останній запис > 0 (наприклад 1) - це провал. 
-               // Якщо останній запис 0 або записів немає - вона в очікуванні (слайдер).
-               if (lastValue !== null && lastValue > 0) currentStatus = 'failed';
-           } else {
-               if (h.targetValue > 1) {
-                   // ЧИСЛОВА: тут все ще працює логіка суми (наприклад, випив 500 + 500 мл)
-                   if (totalSum >= h.targetValue) currentStatus = 'done';
-               } else {
-                   // БУЛЕВА: дивимось ТІЛЬКИ на останній сигнал
-                   // Якщо останній клік був "Undo" (0), вона стане 'pending' навіть якщо раніше було (1)
-                   if (lastValue === 1) currentStatus = 'done';
-               }
-           }
-
-           initialStatus[h.id] = { 
-               status: currentStatus, 
-               loggedValue: h.targetValue > 1 ? totalSum : (lastValue || 0) 
-           };
-        });
-        setHabitStatus(initialStatus);
-      })
+  useEffect(() => {
+    refreshData()
       .catch(() => setFetchError('Could not load habits.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshData]);
 
-  // Group habits by categoryId. Habits with an unconfigured category go to a fallback bucket.
+  // When selectedDate changes, recompute status from the cached executions
+  // without a new network round-trip.
+  useEffect(() => {
+    if (loading) return;
+    setHabitStatus(
+      computeStatusForDate(habitsRef.current, allExecutionsRef.current, selectedDate)
+    );
+    setExpandedId(null);
+  }, [selectedDate, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pavilion grouping ──────────────────────────────────────────────────────
   const { pavilionGroups, unknownHabits } = useMemo(() => {
     const groups  = Object.fromEntries(Object.keys(PAVILION_CONFIG).map((k) => [k, []]));
     const unknown = [];
     habits.forEach((h) => {
-      if (PAVILION_CONFIG[h.categoryId]) {
-        groups[h.categoryId].push(h);
-      } else {
-        unknown.push(h);
-      }
+      if (PAVILION_CONFIG[h.categoryId]) groups[h.categoryId].push(h);
+      else                               unknown.push(h);
     });
     return { pavilionGroups: groups, unknownHabits: unknown };
   }, [habits]);
 
-  // ── Action handlers ───────────────────────────────────────────────────────
-  // All handlers optimistically update local state and roll back on API error.
-  // Payload shape is always { loggedValue: number } — the strict API contract.
+  // ── Processing locks ──────────────────────────────────────────────────────
+  const lockHabit   = useCallback((id) => setProcessingHabits((s) => new Set(s).add(id)), []);
+  const unlockHabit = useCallback((id) => setProcessingHabits((s) => { const n = new Set(s); n.delete(id); return n; }), []);
+
+  // ── Action handlers (DO NOT TOUCH the undo/log logic below) ──────────────
 
   const handleDone = useCallback(async (habitId) => {
     if (processingHabits.has(habitId)) return;
@@ -667,6 +832,7 @@ export default function Dashboard() {
     setHabitStatus((s) => ({ ...s, [habitId]: { status: 'done', loggedValue: 1 } }));
     try {
       await logHabitExecution(habitId, { loggedValue: 1 });
+      await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
@@ -682,6 +848,7 @@ export default function Dashboard() {
     setExpandedId(null);
     try {
       await logHabitExecution(habitId, { loggedValue: 1 });
+      await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
@@ -693,20 +860,15 @@ export default function Dashboard() {
     if (processingHabits.has(habitId)) return;
     const currentData = habitStatusRef.current[habitId];
     if (!currentData) return;
-
-    // Nothing to negate — guard applies to all habit types.
     if (currentData.loggedValue <= 0) return;
 
     lockHabit(habitId);
     const prev = currentData;
     setHabitStatus((s) => ({ ...s, [habitId]: { status: 'pending', loggedValue: 0 } }));
     setExpandedId(null);
-
     try {
-      // Always negate the full accumulated value so SUM(logged_value) returns to 0.
       await logHabitExecution(habitId, { loggedValue: -(currentData.loggedValue) });
-      const freshHabits = await fetchUserHabits();
-      setHabits(freshHabits);
+      await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
@@ -724,19 +886,11 @@ export default function Dashboard() {
       const cur      = s[habitId] || { status: 'pending', loggedValue: 0 };
       const newTotal = cur.loggedValue + payload.value;
       const target   = habit?.targetValue || 1;
-      return {
-        ...s,
-        [habitId]: {
-          status:      newTotal >= target ? 'done' : 'pending',
-          loggedValue: newTotal,
-        },
-      };
+      return { ...s, [habitId]: { status: newTotal >= target ? 'done' : 'pending', loggedValue: newTotal } };
     });
-
     try {
       await logHabitExecution(habitId, { loggedValue: payload.value });
-      const freshHabits = await fetchUserHabits();
-      setHabits(freshHabits);
+      await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
@@ -750,6 +904,13 @@ export default function Dashboard() {
 
   const hasHabits = habits.length > 0;
 
+  // ── Return to today shortcut ───────────────────────────────────────────────
+  const goToToday = useCallback(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    setSelectedDate(d);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-screen flex-col bg-rice">
 
@@ -759,18 +920,53 @@ export default function Dashboard() {
         style={{ borderBottom: '0.5px solid rgba(45,45,45,0.10)' }}
       >
         <div className="mx-auto max-w-md space-y-3">
+
+          {/* Title row + bell + streak */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span className="font-seal text-xl leading-none text-jade">和</span>
               <span className="text-[14px] font-[400] text-[#364153]">Harmony</span>
             </div>
-            <StreakWidget yin={yinCount} yang={yangCount} />
+            <div className="flex items-center gap-2.5">
+              <StreakWidget yin={yinCount} yang={yangCount} />
+            </div>
           </div>
-          <WeekStrip days={days} />
+
+          {/* Interactive week strip + expandable calendar */}
+          <WeekStrip selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+
+          {/* Viewing-date banner — hidden when on today */}
+          <AnimatePresence>
+            {!isTodaySelected && (
+              <motion.div
+                key="date-banner"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+                className="overflow-hidden"
+              >
+                <div className={`flex items-center justify-between rounded-xl px-3 py-1.5 ${isReadOnly ? 'bg-diamond/25' : 'bg-jade/10'}`}>
+                  <span className={`text-[11px] font-[500] ${isReadOnly ? 'text-diamond' : 'text-jade-deep'}`}>
+                    {isReadOnly ? '🔮' : '📜'}&nbsp;
+                    {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {isReadOnly ? ' · upcoming' : ' · past'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={goToToday}
+                    className="text-[11px] font-[600] text-jade-deep"
+                  >
+                    Back to today
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
-      {/* ── Scrollable content ─────────────────────────────────────── */}
+      {/* ── Scrollable content ──────────────────────────────────────── */}
       <motion.main
         variants={pageVar}
         initial="hidden"
@@ -789,6 +985,17 @@ export default function Dashboard() {
           </motion.div>
         )}
 
+        {/* Read-only future date notice */}
+        {isReadOnly && !loading && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-diamond/30 bg-diamond/10 px-4 py-3 text-[12px] text-ink-soft"
+          >
+            🔮 This is a future date — habits are shown as scheduled. Logging is disabled.
+          </motion.div>
+        )}
+
         {!loading && !fetchError && !hasHabits && <EmptyState />}
 
         {!loading && !fetchError && hasHabits && (
@@ -804,16 +1011,17 @@ export default function Dashboard() {
                   habitStatus={habitStatus}
                   expandedId={expandedId}
                   processingHabits={processingHabits}
+                  isReadOnly={isReadOnly}
                   onDone={handleDone}
                   onFail={handleFail}
                   onUndo={handleUndo}
                   onLog={handleLog}
                   onToggleExpand={handleToggleExpand}
+                  onEdit={openEditDrawer}
                 />
               );
             })}
 
-            {/* Safety net: habits with a categoryId not in PAVILION_CONFIG */}
             {unknownHabits.length > 0 && (
               <PavilionSection
                 config={FALLBACK_PAVILION}
@@ -821,11 +1029,13 @@ export default function Dashboard() {
                 habitStatus={habitStatus}
                 expandedId={expandedId}
                 processingHabits={processingHabits}
+                isReadOnly={isReadOnly}
                 onDone={handleDone}
                 onFail={handleFail}
                 onUndo={handleUndo}
                 onLog={handleLog}
                 onToggleExpand={handleToggleExpand}
+                onEdit={openEditDrawer}
               />
             )}
           </>
@@ -834,12 +1044,13 @@ export default function Dashboard() {
         {!loading && !fetchError && hasHabits && <ProverbCard />}
       </motion.main>
 
-      {/* ── Add habit FAB ───────────────────────────────────────────── */}
+      {/* ── Add habit FAB ────────────────────────────────────────────── */}
       <motion.button
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.55 }}
         whileTap={{ scale: 0.90 }}
+        onClick={openAddDrawer}
         aria-label="Add habit"
         className="fixed bottom-[84px] right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-jade"
         style={{ boxShadow: '0 4px 24px -4px rgba(107,155,107,0.65)' }}
@@ -849,8 +1060,16 @@ export default function Dashboard() {
         </svg>
       </motion.button>
 
-      {/* ── Bottom nav ──────────────────────────────────────────────── */}
-      <BottomNav active={navActive} onChange={setNavActive} />
+      {/* ── Bottom nav ───────────────────────────────────────────────── */}
+      <BottomNav />
+
+      {/* ── Habit form drawer ────────────────────────────────────────── */}
+      <HabitFormDrawer
+        open={drawerOpen}
+        habit={editHabit}
+        onClose={closeDrawer}
+        onSaved={refreshData}
+      />
     </div>
   );
 }

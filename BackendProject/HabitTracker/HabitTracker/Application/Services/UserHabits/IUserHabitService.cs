@@ -37,5 +37,18 @@ namespace HabitTracker.Application.Services.UserHabits
             Guid userId,
             int take,
             CancellationToken ct = default);
+
+        /// <summary>Updates an existing user habit subscription.</summary>
+        Task UpdateUserHabitAsync(
+            Guid userId,
+            Guid id,
+            UserHabitDto dto,
+            CancellationToken ct = default);
+
+        /// <summary>Soft-deletes (archives) a user habit subscription.</summary>
+        Task ArchiveUserHabitAsync(
+            Guid userId,
+            Guid id,
+            CancellationToken ct = default);
     }
 }

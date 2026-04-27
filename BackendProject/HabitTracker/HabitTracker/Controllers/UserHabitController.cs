@@ -83,5 +83,40 @@ namespace HabitTracker.Controllers
             var userId = User.GetUserId();
             return Ok(await _service.GetRecentExecutionsAsync(userId, take, ct));
         }
+
+        /// <summary>Updates an existing habit subscription's settings.</summary>
+        [HttpPut("{id:guid}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateUserHabit(
+            Guid id,
+            [FromBody] UserHabitDto dto,
+            CancellationToken ct)
+        {
+            try
+            {
+                var userId = User.GetUserId();
+                await _service.UpdateUserHabitAsync(userId, id, dto, ct);
+                return NoContent();
+            }
+            catch (NotFoundException ex) { return NotFound(new { error = ex.Message }); }
+            catch (ValidationException ex) { return BadRequest(new { error = ex.Message }); }
+        }
+
+        /// <summary>Soft-deletes (archives) a habit subscription.</summary>
+        [HttpDelete("{id:guid}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteUserHabit(Guid id, CancellationToken ct)
+        {
+            try
+            {
+                var userId = User.GetUserId();
+                await _service.ArchiveUserHabitAsync(userId, id, ct);
+                return NoContent();
+            }
+            catch (NotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        }
     }
 }

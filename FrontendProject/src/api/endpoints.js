@@ -8,8 +8,10 @@ export const endpoints = {
   habits: {
     list: '/api/habits',
     userList: '/api/user-habits',
+    userHabit: (id) => `/api/user-habits/${id}`,
     catalog: '/api/catalog/habits',
     executions: (id) => `/api/user-habits/${id}/executions`,
+    recentExecutions: '/api/user-habits/executions/recent',
   },
   sleep: {
     list: '/api/sleep',

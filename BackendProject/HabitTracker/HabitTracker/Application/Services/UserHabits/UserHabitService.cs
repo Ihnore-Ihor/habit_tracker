@@ -159,6 +159,45 @@ namespace HabitTracker.Application.Services.UserHabits
                 .ToListAsync(ct);
         }
 
+        public async Task UpdateUserHabitAsync(
+            Guid userId,
+            Guid id,
+            UserHabitDto dto,
+            CancellationToken ct = default)
+        {
+            var userHabit = await _db.UserHabits
+                .FirstOrDefaultAsync(uh => uh.Id == id && uh.UserId == userId, ct)
+                ?? throw new NotFoundException(nameof(UserHabit), id);
+
+            if (userHabit.IsArchived)
+                throw new ValidationException("Cannot update an archived habit.");
+
+            userHabit.CategoryId = dto.CategoryId;
+            userHabit.CustomName = dto.CustomName;
+            userHabit.IsNegative = dto.IsNegative;
+            userHabit.TargetValue = dto.TargetValue;
+            userHabit.MetricUnit = dto.MetricUnit;
+            userHabit.FrequencyType = dto.FrequencyType;
+            userHabit.ColorHex = dto.ColorHex;
+            userHabit.IconEmoji = dto.IconEmoji;
+            userHabit.ScheduleRule = MapScheduleRule(dto.ScheduleRule);
+
+            await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task ArchiveUserHabitAsync(
+            Guid userId,
+            Guid id,
+            CancellationToken ct = default)
+        {
+            var userHabit = await _db.UserHabits
+                .FirstOrDefaultAsync(uh => uh.Id == id && uh.UserId == userId, ct)
+                ?? throw new NotFoundException(nameof(UserHabit), id);
+
+            userHabit.IsArchived = true;
+            await _db.SaveChangesAsync(ct);
+        }
+
         // ──────────────────────────── Mapping ────────────────────────────
 
         private static ScheduleRule? MapScheduleRule(ScheduleRuleDto? dto)
