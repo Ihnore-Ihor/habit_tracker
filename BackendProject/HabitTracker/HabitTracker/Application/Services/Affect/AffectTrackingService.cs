@@ -88,6 +88,59 @@ namespace HabitTracker.Application.Services.Affect
                 .ToListAsync(ct);
         }
 
+        public async Task<IReadOnlyList<AffectEntryDto>> GetDailyAffectAsync(
+            Guid userId,
+            DateTime? date,
+            CancellationToken ct = default)
+        {
+            var targetDate = date.HasValue 
+                ? DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Utc) 
+                : DateTime.UtcNow.Date;
+            var nextDate = targetDate.AddDays(1);
+
+            return await _db.AffectEntries.AsNoTracking()
+                .Where(a => a.UserId == userId && a.RecordedAt >= targetDate && a.RecordedAt < nextDate)
+                .OrderBy(a => a.RecordedAt)
+                .Select(a => new AffectEntryDto
+                {
+                    Id = a.Id,
+                    PleasureScore = a.PleasureScore,
+                    ArousalScore = a.ArousalScore,
+                    DominanceScore = a.DominanceScore,
+                    ContextTags = a.ContextTags,
+                    Note = a.Note,
+                    RecordedAt = a.RecordedAt
+                })
+                .ToListAsync(ct);
+        }
+
+        public async Task<AffectSummaryDto?> GetDailySummaryAsync(
+            Guid userId,
+            DateTime? date,
+            CancellationToken ct = default)
+        {
+            var targetDate = date.HasValue 
+                ? DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Utc) 
+                : DateTime.UtcNow.Date;
+            var nextDate = targetDate.AddDays(1);
+
+            var dailyLogs = await _db.AffectEntries.AsNoTracking()
+                .Where(ae => ae.UserId == userId && ae.RecordedAt >= targetDate && ae.RecordedAt < nextDate)
+                .ToListAsync(ct);
+
+            if (!dailyLogs.Any())
+            {
+                return null;
+            }
+
+            return new AffectSummaryDto
+            {
+                p_centroid = Math.Round(dailyLogs.Average(x => x.PleasureScore), 1),
+                a_centroid = Math.Round(dailyLogs.Average(x => x.ArousalScore), 1),
+                d_centroid = Math.Round(dailyLogs.Average(x => x.DominanceScore), 1)
+            };
+        }
+
         private static AffectEntryDto Map(AffectEntry a) => new()
         {
             Id = a.Id,

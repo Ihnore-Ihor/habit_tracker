@@ -35,4 +35,11 @@ namespace HabitTracker.Application.DTOs.Affect
         /// <summary>Optional retro-log moment (UTC). Defaults to <c>DateTime.UtcNow</c>.</summary>
         public DateTime? RecordedAt { get; set; }
     }
+
+    public sealed class AffectSummaryDto
+    {
+        public double p_centroid { get; init; }
+        public double a_centroid { get; init; }
+        public double d_centroid { get; init; }
+    }
 }

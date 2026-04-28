@@ -13,7 +13,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    id: 'sleep', label: 'Sleep/Mood', path: null,
+    id: 'sleep', label: 'Sleep/Mood', path: '/body-mind',
     Icon: () => (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
         <path d="M14 3.5A7 7 0 1 1 4 14a5.5 5.5 0 0 0 10-10.5z" />

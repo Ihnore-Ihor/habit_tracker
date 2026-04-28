@@ -18,5 +18,15 @@ namespace HabitTracker.Application.Services.Affect
             Guid userId,
             int take,
             CancellationToken ct = default);
+
+        Task<IReadOnlyList<AffectEntryDto>> GetDailyAffectAsync(
+            Guid userId,
+            DateTime? date,
+            CancellationToken ct = default);
+
+        Task<AffectSummaryDto?> GetDailySummaryAsync(
+            Guid userId,
+            DateTime? date,
+            CancellationToken ct = default);
     }
 }

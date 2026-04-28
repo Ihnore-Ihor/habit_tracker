@@ -17,7 +17,10 @@ export const endpoints = {
     list: '/api/sleep',
   },
   affect: {
-    list: '/api/affect',
+    list:    '/api/affect',
+    log:     '/api/affect',
+    today:   '/api/affect/today',
+    summary: '/api/affect/today/summary',
   },
   analytics: {
     me: '/api/analytics/me',

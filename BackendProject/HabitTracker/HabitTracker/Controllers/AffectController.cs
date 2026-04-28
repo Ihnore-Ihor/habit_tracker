@@ -53,5 +53,23 @@ namespace HabitTracker.Controllers
             var userId = User.GetUserId();
             return Ok(await _service.GetRecentEntriesAsync(userId, take, ct));
         }
+
+        /// <summary>Returns the caller's affect entries for the specified date.</summary>
+        [HttpGet("daily")]
+        [ProducesResponseType(typeof(IReadOnlyList<AffectEntryDto>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<AffectEntryDto>>> GetDailyAffect([FromQuery] DateTime? date, CancellationToken ct)
+        {
+            var userId = User.GetUserId();
+            return Ok(await _service.GetDailyAffectAsync(userId, date, ct));
+        }
+
+        /// <summary>Returns the centroid of the caller's affect for the specified date.</summary>
+        [HttpGet("daily/summary")]
+        [ProducesResponseType(typeof(AffectSummaryDto), StatusCodes.Status200OK)]
+        public async Task<ActionResult<AffectSummaryDto>> GetDailySummary([FromQuery] DateTime? date, CancellationToken ct)
+        {
+            var userId = User.GetUserId();
+            return Ok(await _service.GetDailySummaryAsync(userId, date, ct));
+        }
     }
 }

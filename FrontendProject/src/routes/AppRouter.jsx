@@ -10,6 +10,7 @@ import Dashboard from '../pages/Dashboard.jsx';
 import Profile from '../pages/Profile.jsx';
 import ContentManagerHome from '../pages/ContentManagerHome.jsx';
 import AnalystHome from '../pages/AnalystHome.jsx';
+import AffectView from '../pages/AffectView.jsx';
 import NotFound from '../pages/NotFound.jsx';
 import Forbidden from '../pages/Forbidden.jsx';
 
@@ -40,6 +41,14 @@ export default function AppRouter() {
           element={
             <ProtectedRoute allow={[ROLES.USER]}>
               <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/body-mind"
+          element={
+            <ProtectedRoute allow={[ROLES.USER]}>
+              <AffectView />
             </ProtectedRoute>
           }
         />
