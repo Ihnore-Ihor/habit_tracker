@@ -1,7 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api/client.js';
 import { endpoints } from '../api/endpoints.js';
+
+// Перетворює UTC дату з бекенду у локальний рядок для інпуту без зсуву
+const formatToLocalInput = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  // Використовуємо трюк із вирахуванням зміщення, щоб отримати "чистий" локальний час
+  const offset = d.getTimezoneOffset() * 60000;
+  const localIso = new Date(d.getTime() - offset).toISOString();
+  return localIso.substring(0, 16); // повертає "YYYY-MM-DDTHH:mm"
+};
 
 // ── Math / time helpers ───────────────────────────────────────────────────────
 
@@ -392,15 +402,62 @@ export default function SleepView() {
   const [period,  setPeriod]  = useState('Week');
   const [anchor,  setAnchor]  = useState(new Date());
   const [logs,    setLogs]    = useState([]);
-  const [profile, setProfile] = useState(null);
+  const [sleepPlan, setSleepPlan] = useState(null); // Новий стейт для JSON плану
   const [loadingChart, setLoadingChart] = useState(true);
   const [refreshKey,   setRefreshKey]   = useState(0);
   const [selectedLog,  setSelectedLog]  = useState(null);
+  const [editingLog,   setEditingLog]   = useState(null); // Для режиму редагування
+  const [profile,      setProfile]      = useState(null); // Дані алгоритму
+
+  const [showSetup, setShowSetup] = useState(false); // Стейт для модалки налаштувань
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [setupData, setSetupData] = useState({
+    targetWakeTime: '07:00',
+    baseSleepHours: 8,
+    absoluteMinSleepHours: 6,
+    shiftStepMinutes: 15,
+    weekendDeviationHours: 1.5
+  });
+
+  const handleEdit = (log) => {
+    if (!log) return;
+    setEditingLog(log); // Включаємо режим редагування
+    // Форматуємо для datetime-local (YYYY-MM-DDThh:mm)
+    setSleepStart(formatToLocalInput(log.sleepStart));
+    setSleepEnd(formatToLocalInput(log.sleepEnd));
+    setQuality(log.sleepQuality || 5);
+    
+    // Плавний скрол до форми зверху
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSelectedLog(null); // Закриваємо тултіп
+  };
+
+  const handleDelete = async (id) => {
+    if (!id) return;
+    if (!window.confirm("Are you sure you want to delete this sleep log?")) return;
+    try {
+      await api.delete(`/api/sleep/${id}`);
+      setRefreshKey(prev => prev + 1); // Оновлюємо дані
+      setSelectedLog(null);
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("Failed to delete log.");
+    }
+  };
 
   const dates = useMemo(() => getWindowDates(period, anchor), [period, anchor]);
 
   const fromStr = useMemo(() => localDateKey(dates[0]), [dates]);
   const toStr   = useMemo(() => localDateKey(dates[dates.length - 1]), [dates]);
+
+  // ФІКС ПОНЕДІЛКА: Зміщуємо дату запиту на 1 день назад (на Неділю), 
+  // щоб гарантовано отримати сон, який почався в неділю, а закінчився в понеділок
+  const fetchFromStr = useMemo(() => {
+    if (!dates || dates.length === 0) return fromStr;
+    const d = new Date(dates[0]);
+    d.setDate(d.getDate() - 1);
+    return localDateKey(d);
+  }, [dates, fromStr]);
 
   // Group logs for chart lookup
   const grouped = useMemo(() => {
@@ -425,21 +482,86 @@ export default function SleepView() {
     return (sum / ratedLogs.length).toFixed(1);
   }, [logs]);
 
-  // Fetch profile once
-  useEffect(() => {
-    api.get(endpoints.sleep.profile)
-      .then(r => setProfile(r.data ?? null))
-      .catch(() => setProfile(null));
-  }, []);
+  const avgDuration = useMemo(() => {
+    if (!logs || logs.length === 0) return 0;
+    const sum = logs.reduce((acc, l) => {
+      const dur = (new Date(l.sleepEnd) - new Date(l.sleepStart)) / 3600000;
+      return acc + dur;
+    }, 0);
+    return (sum / logs.length).toFixed(1);
+  }, [logs]);
 
-  // Fetch logs when window changes
+  const efficiency = useMemo(() => {
+    if (!logs || logs.length === 0) return 0;
+    // Розрахунок ефективності: наскільки середня тривалість близька до ідеалу (8 год)
+    const target = 8; 
+    const score = (parseFloat(avgDuration) / target) * 100;
+    return Math.min(100, Math.round(score));
+  }, [logs, avgDuration]);
+
+  const suggestedBedtime = useMemo(() => {
+    if (!sleepPlan || !sleepPlan.days) return null;
+    const todayStr = new Date().toDateString();
+    const plan = sleepPlan.days.find(d => new Date(d.date).toDateString() === todayStr);
+    if (!plan) return null;
+
+    const [h, m] = plan.plannedWake.split(':').map(Number);
+    const wakeMins = h * 60 + m;
+    const bedMins = (wakeMins - plan.plannedSleepHours * 60 + 1440) % 1440;
+
+    const bh = Math.floor(bedMins / 60);
+    const bm = bedMins % 60;
+    return `${String(bh).padStart(2, '0')}:${String(bm).padStart(2, '0')}`;
+  }, [sleepPlan]);
+
+  // Fetch logs and sleep plan when window changes
   useEffect(() => {
     setLoadingChart(true);
-    api.get(`${endpoints.sleep.list}?from=${fromStr}&to=${toStr}`)
-      .then(r => setLogs(r.data ?? []))
-      .catch(() => setLogs([]))
-      .finally(() => setLoadingChart(false));
-  }, [fromStr, toStr, refreshKey]);
+
+    const fetchOrGeneratePlan = async () => {
+      try {
+        const res = await api.get('/api/sleep/recommendations/latest');
+        return res.data;
+      } catch (err) {
+        if (err.response?.status === 404) {
+          console.log("No sleep plan found. Generating a new one...");
+          try {
+            // Викликаємо POST генерацію
+            const genRes = await api.post('/api/sleep/recommendations/generate');
+            return genRes.data; // Повертаємо щойно згенерований JSON
+          } catch (genErr) {
+            console.error("Failed to generate sleep plan:", genErr);
+            return null;
+          }
+        }
+        return null;
+      }
+    };
+
+    Promise.all([
+      api.get(`${endpoints.sleep.list}?from=${fetchFromStr}&to=${toStr}`).then(r => r.data).catch(() => []),
+      fetchOrGeneratePlan(),
+      api.get('/api/sleep/profile').then(r => r.data).catch(() => null)
+    ]).then(([fetchedLogs, fetchedPlan, fetchedProfile]) => {
+      setLogs(fetchedLogs);
+      setSleepPlan(fetchedPlan);
+      
+      if (!fetchedProfile || !fetchedProfile.id) {
+        // Якщо профілю немає в БД — показуємо Onboarding
+        setShowSetup(true);
+      } else {
+        setProfile(fetchedProfile);
+        // Заповнюємо форму існуючими даними (якщо юзер захоче відредагувати)
+        setSetupData({
+          targetWakeTime: fetchedProfile.targetWakeTime.substring(0, 5), // Беремо "HH:mm" з "HH:mm:ss"
+          baseSleepHours: fetchedProfile.baseSleepHours,
+          absoluteMinSleepHours: fetchedProfile.absoluteMinSleepHours,
+          shiftStepMinutes: fetchedProfile.shiftStepMinutes,
+          weekendDeviationHours: fetchedProfile.weekendDeviationHours
+        });
+      }
+    }).finally(() => setLoadingChart(false));
+  }, [fetchFromStr, toStr, refreshKey]);
 
   const isCurrentPeriod = () => {
     const today = new Date();
@@ -462,18 +584,36 @@ export default function SleepView() {
       setSaving(true);
       setSaveErr('');
       
+      const startDate = new Date(sleepStart);
+      const endDate = new Date(sleepEnd);
+
+      // Валідація на фронтенді
+      if (endDate <= startDate) {
+        alert("Wake up time must be strictly after bedtime!");
+        setSaving(false);
+        return;
+      }
+
       const payload = {
-        sleepStart: new Date(sleepStart).toISOString(),
-        sleepEnd: new Date(sleepEnd).toISOString(),
-        ...(quality != null && { sleepQuality: quality }),
+        sleepStart: startDate.toISOString(),
+        sleepEnd: endDate.toISOString(),
+        ...(quality != null && { sleepQuality: Number(quality) }),
         tags: []
       };
 
-      await api.post(endpoints.sleep.logs, payload);
-      alert('Sleep logged successfully!');
+      if (editingLog && editingLog.id) {
+        // ОНОВЛЕННЯ (PUT)
+        await api.put(`/api/sleep/logs/${editingLog.id}`, payload);
+        alert('Sleep log updated!');
+      } else {
+        // СТВОРЕННЯ (POST)
+        await api.post('/api/sleep/logs', payload);
+        alert('Sleep logged successfully!');
+      }
       
       const d = getDefaultTimes();
       setSleepStart(d.sleepStart); setSleepEnd(d.sleepEnd); setQuality(null);
+      setEditingLog(null); // Виходимо з режиму редагування
       setRefreshKey(k => k + 1);
     } catch (err) {
       console.error("Payload error:", err.response?.data);
@@ -484,8 +624,79 @@ export default function SleepView() {
     }
   };
 
+  const handleSaveProfile = async () => {
+    try {
+      setIsSavingProfile(true);
+      
+      const payload = {
+        // Переконуємось, що час має формат HH:mm:ss
+        targetWakeTime: setupData.targetWakeTime.length === 5 
+          ? `${setupData.targetWakeTime}:00` 
+          : setupData.targetWakeTime,
+        // Примусово перетворюємо на числа
+        baseSleepHours: Number(setupData.baseSleepHours),
+        absoluteMinSleepHours: Number(setupData.absoluteMinSleepHours),
+        shiftStepMinutes: parseInt(setupData.shiftStepMinutes),
+        weekendDeviationHours: Number(setupData.weekendDeviationHours)
+      };
+
+      // 1. Зберігаємо профіль
+      await api.put('/api/sleep/profile', payload);
+      
+      // 2. ВІДРАЗУ генеруємо перші рекомендації
+      await api.post('/api/sleep/recommendations/generate');
+      
+      alert('Sleep profile initialized!');
+      setShowSetup(false);
+      
+      // 3. Оновлюємо ключ, щоб useEffect завантажив нові дані
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      console.error("Setup error details:", err.response?.data);
+      alert(`Failed to initialize: ${err.response?.data?.error || 'Unknown error'}`);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+
+      {/* ── Summary Widgets ── */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white/60 p-3 rounded-2xl border border-ink/5 flex flex-col items-center">
+          <span className="text-[10px] text-[#6A7282] uppercase font-bold tracking-wider mb-1">Efficiency</span>
+          <span className="text-[18px] font-bold text-[#5B7FA6]">{efficiency}%</span>
+        </div>
+        <div className="bg-white/60 p-3 rounded-2xl border border-ink/5 flex flex-col items-center">
+          <span className="text-[10px] text-[#6A7282] uppercase font-bold tracking-wider mb-1">Avg Duration</span>
+          <span className="text-[18px] font-bold text-[#4A5565]">{avgDuration}h</span>
+        </div>
+        <div className="bg-white/60 p-3 rounded-2xl border border-ink/5 flex flex-col items-center">
+          <span className="text-[10px] text-[#6A7282] uppercase font-bold tracking-wider mb-1">Avg Quality</span>
+          <span className="text-[18px] font-bold text-[#E8B4B4]">{avgQuality}/10</span>
+        </div>
+      </div>
+
+      {suggestedBedtime && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-4 bg-[#5B7FA6]/5 border border-[#5B7FA6]/20 rounded-2xl flex items-center gap-3"
+        >
+          <div className="w-10 h-10 bg-[#5B7FA6]/10 rounded-full flex items-center justify-center text-[#5B7FA6]">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707-.707" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-[11px] text-[#6A7282] font-medium uppercase tracking-wider">Tonight's Goal</p>
+            <p className="text-[14px] text-[#1E2939]">
+              To hit your <span className="font-bold text-[#5B7FA6]">{sleepPlan.days[0].plannedSleepHours}h</span> goal, try to be in bed by <span className="font-bold text-[#5B7FA6]">{suggestedBedtime}</span>
+            </p>
+          </div>
+        </motion.div>
+      )}
 
       {/* ── Log Sleep Card ── */}
       <motion.section
@@ -523,16 +734,33 @@ export default function SleepView() {
 
         {saveErr && <p className="mt-2 text-[12px] text-garnet">{saveErr}</p>}
 
-        <motion.button
-          type="button"
-          onClick={handleSubmit}
-          disabled={saving}
-          whileTap={{ scale: 0.97 }}
-          className="mt-4 w-full rounded-[10px] py-3 text-[14px] font-[500] text-white disabled:opacity-60"
-          style={{ background: '#4A5565', boxShadow: '0 1px 3px rgba(0,0,0,0.10)' }}
-        >
-          {saving ? 'Saving…' : 'Mark Sleep'}
-        </motion.button>
+        <div className="flex gap-3">
+          <motion.button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            whileTap={{ scale: 0.97 }}
+            className="mt-4 flex-1 rounded-[10px] py-3 text-[14px] font-[500] text-white disabled:opacity-60"
+            style={{ background: '#4A5565', boxShadow: '0 1px 3px rgba(0,0,0,0.10)' }}
+          >
+            {saving ? 'Saving…' : (editingLog ? 'Update Log' : 'Mark Sleep')}
+          </motion.button>
+
+          {editingLog && (
+            <motion.button
+              type="button"
+              onClick={() => {
+                setEditingLog(null);
+                const d = getDefaultTimes();
+                setSleepStart(d.sleepStart); setSleepEnd(d.sleepEnd); setQuality(null);
+              }}
+              whileTap={{ scale: 0.97 }}
+              className="mt-4 flex-1 rounded-[10px] py-3 text-[14px] font-[500] text-[#4A5565] outline outline-[1.5px] outline-[#D1D5DC]"
+            >
+              Cancel
+            </motion.button>
+          )}
+        </div>
       </motion.section>
 
       {/* ── Chart Card ── */}
@@ -541,22 +769,35 @@ export default function SleepView() {
         className="rounded-[14px] bg-white/60"
         style={{ padding: '21.53px', outline: '1.54px rgba(229,231,235,0.50) solid', outlineOffset: '-1.54px' }}
       >
-        {/* Period filter */}
-        <div className="mb-3 flex items-center gap-2">
-          {PERIODS.map(p => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => { setPeriod(p); setAnchor(new Date()); }}
-              className="rounded-[10px] px-3 py-[7px] text-[12px] font-[500] transition-all"
-              style={period === p
-                ? { background: '#5B7FA6', color: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.10)', outline: '0.5px #5B7FA6 solid', outlineOffset: '-0.5px' }
-                : { background: 'rgba(255,255,255,0.70)', color: '#4A5565', outline: '0.5px rgba(209,213,220,0.50) solid', outlineOffset: '-0.5px' }
-              }
-            >
-              {p}
-            </button>
-          ))}
+        {/* Period filter & Settings */}
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {PERIODS.map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => { setPeriod(p); setAnchor(new Date()); }}
+                className="rounded-[10px] px-3 py-[7px] text-[12px] font-[500] transition-all"
+                style={period === p
+                  ? { background: '#5B7FA6', color: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.10)', outline: '0.5px #5B7FA6 solid', outlineOffset: '-0.5px' }
+                  : { background: 'rgba(255,255,255,0.70)', color: '#4A5565', outline: '0.5px rgba(209,213,220,0.50) solid', outlineOffset: '-0.5px' }
+                }
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          <button 
+            onClick={() => setShowSetup(true)} 
+            className="p-2 text-[#6A7282] hover:text-[#364153] transition-colors rounded-full hover:bg-black/5"
+            title="Algorithm Settings"
+          >
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
         </div>
 
         {/* Date navigator */}
@@ -573,9 +814,9 @@ export default function SleepView() {
           <span className="text-[12px] font-[500] text-[#4A5565]">{dateRangeLabel(period, dates)}</span>
           <button
             type="button"
-            disabled={isCurrentPeriod()}
+            disabled={anchor > new Date(new Date().setDate(new Date().getDate() + 14))}
             onClick={() => setAnchor(a => navigatePeriod(period, a, 1))}
-            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${isCurrentPeriod() ? 'cursor-default opacity-30' : 'text-[#4A5565] active:bg-ink/[0.06]'}`}
+            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${anchor > new Date(new Date().setDate(new Date().getDate() + 14)) ? 'cursor-default opacity-30' : 'text-[#4A5565] active:bg-ink/[0.06]'}`}
           >
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -600,99 +841,168 @@ export default function SleepView() {
               </div>
             ))}
 
+            {/* Напис "No data", якщо немає ні логів, ні плану (не накладається на рекомендації) */}
+            {(!logs?.length && !sleepPlan?.days?.length) && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="text-[12px] text-[#99A1AF] bg-rice/80 px-3 py-1 rounded-full">
+                  No sleep data for this period
+                </span>
+              </div>
+            )}
+
             {/* Рендер днів (Стовпці) */}
             <div className="absolute top-0 bottom-0 left-10 right-0 flex justify-between">
-              {dates.map((targetDate, i) => {
-                
-                // 1. Логіка визначення дати стовпця (використовуємо dates[i])
-                const targetDateString = targetDate.toDateString();
+              {Array.from({ length: 7 }).map((_, i) => {
+                // 1. Визначаємо дату стовпця (беремо з нашого масиву dates)
+                const targetDate = new Date(dates[i]);
+                targetDate.setHours(0, 0, 0, 0);
+                const targetTime = targetDate.getTime();
 
-                // 2. Шукаємо лог. Віднімаємо 12 годин від sleepStart, 
-                // щоб сон о 02:00 вівторка зарахувався до "ночі понеділка"
+                // ФІКС ПІВНОЧІ: isFutureOrToday тепер враховує весь поточний день до останньої секунди
+                const startOfToday = new Date();
+                startOfToday.setHours(0, 0, 0, 0);
+                const isFutureOrToday = targetTime >= startOfToday.getTime();
+
+                // 2. Пошук реального логу (за датою пробудження)
                 const log = (logs || []).find(l => {
-                   if (!l || !l.sleepStart) return false;
-                   const logicalDate = new Date(new Date(l.sleepStart).getTime() - 12 * 3600 * 1000);
-                   return logicalDate.toDateString() === targetDateString;
+                   if (!l || !l.sleepEnd) return false;
+                   const d = new Date(l.sleepEnd);
+                   d.setHours(0, 0, 0, 0);
+                   return d.getTime() === targetTime;
                 });
 
-                // 3. Математика для реального сну
+                // 3. Пошук плану (Рекомендації)
+                const dayPlan = (sleepPlan?.days || []).find(d => {
+                   const pDate = new Date(d.date);
+                   pDate.setHours(0, 0, 0, 0);
+                   return pDate.getTime() === targetTime;
+                });
+
+                // Математика реального сну
                 let barTop = 0, barHeight = 0;
                 if (log && log.sleepStart && log.sleepEnd) {
                   const start = new Date(log.sleepStart);
                   const end = new Date(log.sleepEnd);
-                  
-                  // Зміщуємо так, щоб 18:00 було 0% (початок графіка)
                   let startH = start.getHours() + start.getMinutes() / 60;
                   startH = startH >= 18 ? startH - 18 : startH + 6;
                   barTop = (startH / 24) * 100;
-                  
-                  const durationHours = (end - start) / (1000 * 60 * 60);
-                  barHeight = (durationHours / 24) * 100;
+                  barHeight = ((end - start) / 3600000 / 24) * 100;
                 }
 
-                // 4. Математика для пунктирної рамки (Рекомендація)
+                // Математика плану
                 let recTop = 0, recHeight = 0;
-                if (profile && (profile.targetWakeTime || profile.TargetWakeTime)) {
-                  // Парсимо "07:00:00" або "07:00"
-                  const pt = profile.targetWakeTime || profile.TargetWakeTime;
-                  const [wakeH, wakeM] = pt.split(':').map(Number);
+                if (dayPlan) {
+                  const [wakeH, wakeM] = dayPlan.plannedWake.split(':').map(Number);
                   let wakeOffset = wakeH >= 18 ? wakeH - 18 : wakeH + 6;
-                  let wakePercent = ((wakeOffset + (wakeM || 0) / 60) / 24) * 100;
-                  
-                  recHeight = ((profile.baseSleepHours || profile.BaseSleepHours || 8) / 24) * 100;
-                  recTop = wakePercent - recHeight; 
+                  let wakePercent = (wakeOffset + (wakeM || 0) / 60) / 24 * 100;
+                  recHeight = (dayPlan.plannedSleepHours / 24) * 100;
+                  recTop = wakePercent - recHeight;
                 }
 
-                // Підпис дня тижня внизу
-                const lbl = colLabel(period, targetDate, i);
+                const isSelected = selectedLog?.id === (log?.id || `plan-${i}`);
+                const isDimmed = selectedLog && !isSelected;
 
                 return (
                   <div key={i} className="relative flex-1 flex justify-center h-full">
-                    
-                    {/* Пунктирна рамка (Рекомендація) */}
-                    {recHeight > 0 && (
+                    {/* ПУНКТИР (План) - тепер показуємо і сьогодні, якщо немає логу */}
+                    {dayPlan && isFutureOrToday && !log && (
                       <div 
-                        className="absolute w-[75%] rounded border-[1.5px] border-dashed border-[#5B7FA6] bg-[#5B7FA6]/5 pointer-events-none"
+                        onClick={() => {
+                          console.log("DayPlan data:", dayPlan);
+                          setSelectedLog({
+                            id: `plan-${i}`,
+                            isPlan: true,
+                            // Пробуємо всі можливі варіанти імен полів з бекенду
+                            plannedWake: dayPlan.plannedWake || dayPlan.plannedWakeTime || dayPlan.wakeTime,
+                            plannedBedtime: dayPlan.plannedBedtime || dayPlan.idealBedtime || dayPlan.bedtime,
+                            plannedHours: dayPlan.plannedSleepHours || dayPlan.duration || 8,
+                            sleepStart: dayPlan.date + 'T' + (dayPlan.plannedBedtime || dayPlan.idealBedtime || dayPlan.bedtime), 
+                            sleepEnd: dayPlan.date + 'T' + (dayPlan.plannedWake || dayPlan.plannedWakeTime || dayPlan.wakeTime)
+                          });
+                        }}
+                        className="absolute w-[75%] rounded border-[1.5px] border-dashed border-[#5B7FA6] bg-[#5B7FA6]/5 cursor-pointer z-10"
                         style={{ top: `${recTop}%`, height: `${recHeight}%` }}
                       />
                     )}
 
-                    {/* Зафарбований стовпець (Реальний сон) */}
+                    {/* СТОВПЕЦЬ (Факт) */}
                     {log && log.sleepStart && (
                       <div 
-                        onClick={() => setSelectedLog(selectedLog?.id === log.id ? null : log)}
-                        className="absolute w-[75%] rounded bg-[#475569] cursor-pointer hover:bg-[#334155] transition-colors z-20"
+                        onClick={() => setSelectedLog(isSelected ? null : log)}
+                        className={`absolute w-[75%] rounded bg-[#475569] cursor-pointer transition-all z-20 ${isDimmed ? 'opacity-30' : 'hover:bg-[#334155]'}`}
                         style={{ top: `${barTop}%`, height: `${barHeight}%` }}
                       />
                     )}
 
-                    {/* Попап (Модальне вікно) ПРИВ'ЯЗАНЕ до стовпця */}
-                    {selectedLog?.id === log?.id && log && (
-                      <div className={`absolute top-[105%] ${i > (dates.length / 2) ? 'right-0' : 'left-0'} z-50 w-48 bg-white p-3 rounded-xl shadow-[0_4px_20px_rgb(0,0,0,0.15)] border border-[#E5E7EB]`}>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-[12px] font-semibold text-[#364153]">Sleep Details</span>
-                          <button onClick={(e) => { e.stopPropagation(); setSelectedLog(null); }} className="text-[#99A1AF] hover:text-black">✕</button>
-                        </div>
-                        <div className="flex flex-col gap-1.5 text-[11px]">
-                          <div className="flex justify-between border-b border-ink/5 pb-1">
-                            <span className="text-[#6A7282]">Fell asleep</span>
-                            <span className="font-medium text-[#1E2939]">{new Date(log.sleepStart).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    {/* МОДАЛКА (TOOLTIP) */}
+                    <AnimatePresence>
+                      {isSelected && selectedLog && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }} 
+                          animate={{ opacity: 1, y: 0, scale: 1 }} 
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className={`absolute bottom-full mb-4 z-[60] w-44 bg-white p-3 rounded-xl shadow-xl border border-[#E5E7EB] ${i > 4 ? 'right-0' : 'left-0'}`}
+                          style={{ bottom: `${100 - (selectedLog.isPlan ? recTop : barTop)}%` }}
+                        >
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[11px] font-bold text-[#364153]">
+                              {selectedLog.isPlan ? 'Planned Schedule' : 'Sleep Details'}
+                            </span>
+                            <button onClick={(e) => { e.stopPropagation(); setSelectedLog(null); }} className="text-[#99A1AF] hover:text-ink transition-colors">✕</button>
                           </div>
-                          <div className="flex justify-between border-b border-ink/5 pb-1">
-                            <span className="text-[#6A7282]">Woke up</span>
-                            <span className="font-medium text-[#1E2939]">{new Date(log.sleepEnd).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                          
+                          <div className="flex flex-col gap-1.5 text-[11px]">
+                            <div className="flex justify-between border-b border-gray-50 pb-1">
+                              <span className="text-[#6A7282]">{selectedLog.isPlan ? 'Bedtime' : 'Fell asleep'}</span>
+                              <span className="font-medium text-[#1E2939]">
+                                {selectedLog.isPlan 
+                                  ? (selectedLog.plannedBedtime ? selectedLog.plannedBedtime.substring(0, 5) : '--:--') 
+                                  : (selectedLog.sleepStart ? new Date(selectedLog.sleepStart).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--')}
+                              </span>
+                            </div>
+                            <div className="flex justify-between border-b border-gray-50 pb-1">
+                              <span className="text-[#6A7282]">{selectedLog.isPlan ? 'Wake up' : 'Woke up'}</span>
+                              <span className="font-medium text-[#1E2939]">
+                                {selectedLog.isPlan 
+                                  ? (selectedLog.plannedWake?.substring(0, 5) || '--:--') 
+                                  : (selectedLog.sleepEnd ? new Date(selectedLog.sleepEnd).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--')}
+                              </span>
+                            </div>
+                            <div className="flex justify-between pb-1 border-b border-gray-50">
+                              <span className="text-[#6A7282]">Duration</span>
+                              <span className="font-medium text-[#5B7FA6]">
+                                {selectedLog.isPlan ? `${selectedLog.plannedHours} hrs` : `${((new Date(selectedLog.sleepEnd)-new Date(selectedLog.sleepStart))/3600000).toFixed(1)} hrs`}
+                              </span>
+                            </div>
+
+                            {!selectedLog.isPlan && (
+                              <>
+                                <div className="flex justify-between border-t border-gray-50 pt-1 mt-1">
+                                  <span className="text-[#6A7282]">Quality</span>
+                                  <span className="font-medium text-[#E8B4B4]">{selectedLog.sleepQuality} / 10</span>
+                                </div>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleEdit(selectedLog); }}
+                                  className="mt-3 w-full py-1.5 bg-[#5B7FA6]/10 text-[#5B7FA6] rounded-lg font-semibold hover:bg-[#5B7FA6]/20 transition-colors"
+                                >
+                                  Edit Log
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(selectedLog.id); }}
+                                  className="mt-2 w-full py-1.5 bg-red-50 text-red-600 rounded-lg font-semibold hover:bg-red-100 transition-colors"
+                                >
+                                  Delete Log
+                                </button>
+                              </>
+                            )}
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-[#6A7282]">Quality</span>
-                            <span className="font-medium text-[#E8B4B4]">{log.sleepQuality} / 10</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Підпис дня тижня внизу */}
-                    <div className="absolute -bottom-6 text-[9px] text-[#6B7280]">
-                      {lbl}
+                    <div className={`absolute -bottom-6 text-[9px] ${isSelected ? 'text-[#364153] font-bold' : 'text-[#6B7280]'}`}>
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]}
                     </div>
                   </div>
                 );
@@ -707,9 +1017,8 @@ export default function SleepView() {
                   const targetDateString = targetDate.toDateString();
 
                   const log = (logs || []).find(l => {
-                    if (!l || !l.sleepStart) return false;
-                    const logicalDate = new Date(new Date(l.sleepStart).getTime() - 12 * 3600 * 1000);
-                    return logicalDate.toDateString() === targetDateString;
+                    if (!l || !l.sleepEnd) return false;
+                    return new Date(l.sleepEnd).toDateString() === targetDateString;
                   });
 
                   if (!log || !log.sleepStart || !log.sleepEnd) return null;
@@ -779,12 +1088,142 @@ export default function SleepView() {
           </div>
         )}
 
-        <div className="mt-12 flex items-center justify-between px-2">
-           <span className="text-[12px] font-[500] text-[#4A5565]">Average Sleep Quality:</span>
-           <span className="text-[14px] font-bold text-[#5B7FA6]">{avgQuality} / 10</span>
+        <div className="mt-12 flex flex-col gap-2 px-2">
+           <div className="flex items-center justify-between">
+             <span className="text-[12px] font-[500] text-[#4A5565]">Average Sleep Quality:</span>
+             <span className="text-[14px] font-bold text-[#5B7FA6]">{avgQuality} / 10</span>
+           </div>
+           <div className="flex items-center justify-between">
+             <span className="text-[12px] font-[500] text-[#4A5565]">Average Duration:</span>
+             <span className="text-[14px] font-bold text-[#5B7FA6]">{avgDuration} hrs</span>
+           </div>
         </div>
       </motion.section>
 
-    </div>
-  );
+      {/* ── History Section ── */}
+      <motion.section
+        variants={sectionVar}
+        className="rounded-[14px] bg-white/60 p-5"
+        style={{ outline: '1.54px rgba(229,231,235,0.50) solid', outlineOffset: '-1.54px' }}
+      >
+        <h3 className="text-[14px] font-semibold text-[#1E2939] mb-4">Sleep History</h3>
+        <div className="space-y-3">
+          {logs.length === 0 ? (
+            <p className="text-[12px] text-[#6A7282] text-center py-4">No logs for this period.</p>
+          ) : (
+            logs
+              .sort((a, b) => new Date(b.sleepEnd) - new Date(a.sleepEnd))
+              .map((log) => (
+                <div key={log.id} className="flex items-center justify-between p-3 bg-white/40 rounded-xl border border-ink/5">
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#1E2939]">
+                      {new Date(log.sleepStart).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {new Date(log.sleepEnd).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                    </p>
+                    <p className="text-[11px] text-[#6A7282]">
+                      {new Date(log.sleepEnd).toLocaleDateString()} • {((new Date(log.sleepEnd) - new Date(log.sleepStart)) / 3600000).toFixed(1)} hrs • Quality: {log.sleepQuality}/10
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleEdit(log)}
+                      className="p-2 text-[#5B7FA6] hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Edit Log"
+                    >
+                      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(log.id)}
+                      className="p-2 text-garnet hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete Log"
+                    >
+                      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))
+          )}
+        </div>
+      </motion.section>
+
+    {/* Onboarding / Settings Modal */}
+    <AnimatePresence>
+      {showSetup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F9F6EE]/80 backdrop-blur-sm px-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="w-full max-w-sm rounded-[24px] bg-white p-6 shadow-[0_20px_60px_rgb(0,0,0,0.1)] outline outline-[1.5px] outline-[#D1D5DC]/50 max-h-[90vh] overflow-y-auto custom-scrollbar"
+          >
+            <div className="text-center mb-6">
+              <span className="text-4xl mb-2 block">🧬</span>
+              <h2 className="text-[18px] font-semibold text-[#364153]">Your Sleep Blueprint</h2>
+              <p className="text-[12px] text-[#6A7282] mt-1">Let's configure the algorithm to your body's needs.</p>
+            </div>
+
+            <div className="flex flex-col gap-5">
+              {/* Field 1 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-[600] text-[#4A5565]">Target Wake Up Time</label>
+                <p className="text-[10px] text-[#99A1AF] mb-1">When do you ideally want to start your day?</p>
+                <input type="time" value={setupData.targetWakeTime} onChange={(e) => setSetupData({...setupData, targetWakeTime: e.target.value})} className="w-full rounded-[10px] bg-rice/50 px-3 py-2.5 text-sm outline outline-[1px] outline-[#D1D5DC] focus:outline-[#5B7FA6]" />
+              </div>
+
+              {/* Field 2 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-[600] text-[#4A5565]">Base Sleep Need (hours)</label>
+                <p className="text-[10px] text-[#99A1AF] mb-1">How much sleep makes you feel fully rested?</p>
+                <input type="number" step="0.5" min="4" max="12" value={setupData.baseSleepHours} onChange={(e) => setSetupData({...setupData, baseSleepHours: e.target.value})} className="w-full rounded-[10px] bg-rice/50 px-3 py-2.5 text-sm outline outline-[1px] outline-[#D1D5DC] focus:outline-[#5B7FA6]" />
+              </div>
+
+              {/* Field 3 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-[600] text-[#4A5565]">Absolute Minimum Sleep (hours)</label>
+                <p className="text-[10px] text-[#99A1AF] mb-1">The critical line. Below this, we force a schedule shift.</p>
+                <input type="number" step="0.5" min="3" max="8" value={setupData.absoluteMinSleepHours} onChange={(e) => setSetupData({...setupData, absoluteMinSleepHours: e.target.value})} className="w-full rounded-[10px] bg-rice/50 px-3 py-2.5 text-sm outline outline-[1px] outline-[#E8B4B4]/60 focus:outline-[#E8B4B4]" />
+              </div>
+
+              {/* Field 4 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-[600] text-[#4A5565]">Recovery Shift Step (mins)</label>
+                <p className="text-[10px] text-[#99A1AF] mb-1">How fast to push the alarm back after a late night?</p>
+                <select value={setupData.shiftStepMinutes} onChange={(e) => setSetupData({...setupData, shiftStepMinutes: e.target.value})} className="w-full rounded-[10px] bg-rice/50 px-3 py-2.5 text-sm outline outline-[1px] outline-[#D1D5DC] focus:outline-[#5B7FA6]">
+                  <option value="15">Gentle (15 mins/day)</option>
+                  <option value="30">Moderate (30 mins/day)</option>
+                  <option value="60">Aggressive (60 mins/day)</option>
+                </select>
+              </div>
+
+              {/* Field 5 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-[600] text-[#4A5565]">Weekend Deviation (hours)</label>
+                <p className="text-[10px] text-[#99A1AF] mb-1">How much later are you allowed to sleep in on weekends?</p>
+                <input type="number" step="0.5" min="0" max="5" value={setupData.weekendDeviationHours} onChange={(e) => setSetupData({...setupData, weekendDeviationHours: e.target.value})} className="w-full rounded-[10px] bg-rice/50 px-3 py-2.5 text-sm outline outline-[1px] outline-[#D1D5DC] focus:outline-[#5B7FA6]" />
+              </div>
+            </div>
+
+            <button 
+              onClick={handleSaveProfile}
+              disabled={isSavingProfile}
+              className="mt-8 w-full rounded-[12px] bg-[#475569] py-3.5 text-[14px] font-medium text-white shadow-md active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              {isSavingProfile ? 'Saving...' : 'Initialize Algorithm'}
+            </button>
+            
+            {/* Кнопка закриття (доступна тільки якщо профіль вже є в БД) */}
+            {profile && profile.id && (
+               <button onClick={() => setShowSetup(false)} className="mt-4 w-full text-[13px] font-medium text-[#6A7282] hover:text-[#364153]">
+                 Cancel
+               </button>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  </div>
+);
 }

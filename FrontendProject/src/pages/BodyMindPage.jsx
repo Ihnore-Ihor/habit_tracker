@@ -5,8 +5,8 @@ import AffectView from './AffectView.jsx';
 import BottomNav from '../components/common/BottomNav.jsx';
 
 const TABS = [
-  { id: 'sleep', label: '🌙 Sleep' },
-  { id: 'mood',  label: '🌸 Mood'  },
+  { id: 'affect', label: '🌸 Affect' },
+  { id: 'sleep',  label: '🌙 Sleep'  },
 ];
 
 const contentVar = {
@@ -15,7 +15,7 @@ const contentVar = {
 };
 
 export default function BodyMindPage() {
-  const [active, setActive] = useState('sleep');
+  const [active, setActive] = useState('affect');
 
   return (
     <div className="min-h-screen bg-rice pb-28">
@@ -53,7 +53,17 @@ export default function BodyMindPage() {
       {/* ── Tab content ── */}
       <div className="mx-auto max-w-md px-4 pt-6">
         <AnimatePresence mode="wait">
-          {active === 'sleep' ? (
+          {active === 'affect' ? (
+            <motion.div
+              key="affect"
+              variants={contentVar}
+              initial="hidden"
+              animate="show"
+              exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            >
+              <AffectView />
+            </motion.div>
+          ) : (
             <motion.div
               key="sleep"
               variants={contentVar}
@@ -62,16 +72,6 @@ export default function BodyMindPage() {
               exit={{ opacity: 0, transition: { duration: 0.15 } }}
             >
               <SleepView />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="mood"
-              variants={contentVar}
-              initial="hidden"
-              animate="show"
-              exit={{ opacity: 0, transition: { duration: 0.15 } }}
-            >
-              <AffectView />
             </motion.div>
           )}
         </AnimatePresence>

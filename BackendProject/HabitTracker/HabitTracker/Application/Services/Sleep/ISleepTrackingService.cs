@@ -1,4 +1,6 @@
 using HabitTracker.Application.DTOs.Sleep;
+using HabitTracker.Domain.ValueObjects;
+
 
 namespace HabitTracker.Application.Services.Sleep
 {
@@ -43,6 +45,29 @@ namespace HabitTracker.Application.Services.Sleep
         Task<SleepProfileDto> UpsertSleepProfileAsync(
             Guid userId,
             UpsertSleepProfileRequest request,
+            CancellationToken ct = default);
+
+        /// <summary>Generates a 7-day sleep plan based on the user's profile.</summary>
+        Task<SleepPlan> GenerateSleepPlanAsync(
+            Guid userId,
+            CancellationToken ct = default);
+
+        /// <summary>Returns the latest generated sleep plan.</summary>
+        Task<SleepPlan?> GetLatestRecommendationAsync(
+            Guid userId,
+            CancellationToken ct = default);
+
+        /// <summary>Updates an existing sleep log.</summary>
+        Task<SleepLogDto> UpdateSleepLogAsync(
+            Guid userId,
+            Guid logId,
+            LogSleepRequest request,
+            CancellationToken ct = default);
+
+        /// <summary>Deletes a sleep log.</summary>
+        Task DeleteSleepLogAsync(
+            Guid userId,
+            Guid logId,
             CancellationToken ct = default);
     }
 }

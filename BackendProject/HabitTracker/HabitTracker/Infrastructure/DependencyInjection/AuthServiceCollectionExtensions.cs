@@ -82,6 +82,7 @@ namespace HabitTracker.Infrastructure.DependencyInjection
         public static IServiceCollection AddUserOperations(this IServiceCollection services)
         {
             services.AddScoped<IUserHabitService, UserHabitService>();
+            services.AddScoped<ISleepRecommendationService, SleepRecommendationService>();
             services.AddScoped<ISleepTrackingService, SleepTrackingService>();
             services.AddScoped<IAffectTrackingService, AffectTrackingService>();
             return services;

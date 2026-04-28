@@ -51,20 +51,20 @@ namespace HabitTracker.Application.DTOs.Sleep
         [Required]
         public TimeOnly TargetWakeTime { get; set; }
 
-        [Required, Range(typeof(decimal), "1.0", "16.0")]
+        [Required, Range(1.0, 16.0)]
         public decimal BaseSleepHours { get; set; }
 
         /// <summary>
         /// Absolute floor (hours). Spec disallows a hardcoded 6h floor; only requirement is &gt; 0,
         /// enforced both here (ValidationException) and at the DB level (<c>ck_sleep_profile_min_positive</c>).
         /// </summary>
-        [Required, Range(typeof(decimal), "0.5", "12.0")]
+        [Required, Range(0.5, 12.0)]
         public decimal AbsoluteMinSleepHours { get; set; }
 
         [Required, Range(5, 120)]
         public int ShiftStepMinutes { get; set; }
 
-        [Required, Range(typeof(decimal), "0.0", "6.0")]
+        [Required, Range(0.0, 6.0)]
         public decimal WeekendDeviationHours { get; set; }
     }
 }

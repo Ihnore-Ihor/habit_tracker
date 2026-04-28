@@ -4,6 +4,7 @@ using HabitTracker.Application.DTOs.Sleep;
 using HabitTracker.Data;
 using HabitTracker.Domain.Entities;
 using HabitTracker.Domain.Events;
+using HabitTracker.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
 
 namespace HabitTracker.Application.Services.Sleep
@@ -17,11 +18,13 @@ namespace HabitTracker.Application.Services.Sleep
     {
         private readonly AppDbContext _db;
         private readonly IOutboxWriter _outbox;
+        private readonly ISleepRecommendationService _recommendations;
 
-        public SleepTrackingService(AppDbContext db, IOutboxWriter outbox)
+        public SleepTrackingService(AppDbContext db, IOutboxWriter outbox, ISleepRecommendationService recommendations)
         {
             _db = db;
             _outbox = outbox;
+            _recommendations = recommendations;
         }
 
         public async Task<SleepLogDto> LogSleepAsync(
@@ -158,6 +161,47 @@ namespace HabitTracker.Application.Services.Sleep
 
             await _db.SaveChangesAsync(ct);
             return MapProfile(profile);
+        }
+
+        public Task<SleepPlan> GenerateSleepPlanAsync(Guid userId, CancellationToken ct = default)
+            => _recommendations.GeneratePlanForNextDaysAsync(userId, 7, ct);
+
+        public Task<SleepPlan?> GetLatestRecommendationAsync(Guid userId, CancellationToken ct = default)
+            => _recommendations.GetLatestRecommendationAsync(userId, ct);
+
+        public async Task<SleepLogDto> UpdateSleepLogAsync(
+            Guid userId,
+            Guid logId,
+            LogSleepRequest request,
+            CancellationToken ct = default)
+        {
+            if (request.SleepEnd <= request.SleepStart)
+                throw new ValidationException("Sleep end time must be strictly after sleep start time.");
+            if (request.SleepQuality is < 1 or > 10)
+                throw new ValidationException("Sleep quality must be between 1 and 10.");
+
+            var log = await _db.SleepLogs.FirstOrDefaultAsync(sl => sl.Id == logId && sl.UserId == userId, ct);
+            if (log == null) throw new ValidationException("Sleep log not found or access denied.");
+
+            log.SleepStart = DateTime.SpecifyKind(request.SleepStart, DateTimeKind.Utc);
+            log.SleepEnd = DateTime.SpecifyKind(request.SleepEnd, DateTimeKind.Utc);
+            log.SleepQuality = request.SleepQuality;
+            log.Tags = request.Tags ?? new List<string>();
+
+            await _db.SaveChangesAsync(ct);
+            return MapLog(log);
+        }
+
+        public async Task DeleteSleepLogAsync(
+            Guid userId,
+            Guid logId,
+            CancellationToken ct = default)
+        {
+            var log = await _db.SleepLogs.FirstOrDefaultAsync(sl => sl.Id == logId && sl.UserId == userId, ct);
+            if (log == null) return; // Idempotent delete
+
+            _db.SleepLogs.Remove(log);
+            await _db.SaveChangesAsync(ct);
         }
 
         // ──────────────────────────── Mapping ────────────────────────────
