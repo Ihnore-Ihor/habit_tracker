@@ -15,3 +15,9 @@ export const updateUserHabit = (id, payload) =>
 
 export const deleteUserHabit = (id) =>
   api.delete(endpoints.habits.userHabit(id)).then((r) => r.data);
+
+export const fetchCatalogHabits = () =>
+  api.get(endpoints.habits.catalog).then((r) => r.data);
+
+export const fetchRecentExecutions = (take = 100) =>
+  api.get(`${endpoints.habits.recentExecutions}?take=${take}`).then((r) => r.data);

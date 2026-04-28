@@ -4,10 +4,10 @@ import { useAuth } from '../context/AuthContext.jsx';
 import StreakWidget from '../components/widgets/StreakWidget.jsx';
 import BottomNav from '../components/common/BottomNav.jsx';
 import HabitFormDrawer from '../components/HabitFormDrawer.jsx';
+import HabitCatalogDrawer from '../components/HabitCatalogDrawer.jsx';
 import bambooSingle from '../assets/bamboo-slips-single.svg';
 import { fetchUserHabits, logHabitExecution } from '../api/habits.js';
 import api from '../api/client.js';
-import ChineseFrame from '../components/common/ChineseFrame.jsx';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -159,11 +159,12 @@ function CheckEmpty({ onClick, disabled }) {
   );
 }
 
-function CheckDone({ onClick, disabled }) {
+function CheckDone({ onClick, disabled, accentHex }) {
   return (
     <button
       type="button" onClick={onClick} disabled={disabled} aria-label="Undo completion"
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-jade shadow-sm transition-transform active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] shadow-sm transition-transform active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
+      style={{ backgroundColor: accentHex || '#8FBC8F' }}
     >
       <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
         <path d="M1 3.5L4 6.5L10 1" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -325,6 +326,7 @@ function NumericHabitLogger({ targetValue, unit, currentValue, onLog, disabled }
   );
 }
 
+
 // ─── Habit card ───────────────────────────────────────────────────────────────
 
 function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, onToggleExpand, onDone, onFail, onUndo, onLog, onEdit }) {
@@ -336,7 +338,7 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, on
 
   const title     = habit.customName || 'Unnamed Habit';
   const icon      = habit.iconEmoji  || (habit.isNegative ? '🚫' : '✅');
-  const accentHex = habit.isNegative ? '#C85A54' : (habit.colorHex || '#8FBC8F');
+  const accentHex = habit.colorHex || habit.category?.colorHex || '#8FBC8F';
   // In read-only mode numeric cards don't expand
   const canExpand = type === 'numeric' && isPending && !isReadOnly;
 
@@ -345,120 +347,131 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, on
 
   return (
     <motion.div layout variants={cardVar} className="relative w-full drop-shadow-sm">
-      <ChineseFrame frame={3} slice={25} className="w-full drop-shadow-sm">
-        <div className="relative p-[2px] bg-transparent">
-          <div className="relative overflow-hidden rounded-[8px] bg-[#F9F6EE]" style={{ minHeight: 64 }}>
+      
+      {/* Зовнішнє сяйво (Glow) */}
+      <div 
+        className="pointer-events-none absolute -inset-2 rounded-3xl opacity-20 blur-xl" 
+        style={{ backgroundColor: accentHex }} 
+      />
 
-            <div className="pointer-events-none absolute inset-0 opacity-[0.08]"
-                 style={{ backgroundColor: accentHex }} />
+      {/* Сама картка */}
+      <div className="relative overflow-hidden rounded-[14px] bg-white/90 shadow-sm" style={{ minHeight: 64, outline: `1.5px solid ${accentHex}40`, outlineOffset: '-1.5px' }}>
+        
+        {/* Легкий відтінок фону */}
+        <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundColor: accentHex }} />
 
-            {/* Main content row */}
-            <div
-              className={`relative z-10 flex items-start gap-3 px-4 py-[15px] ${canExpand && !isProcessing ? 'cursor-pointer select-none' : ''}`}
-              onClick={canExpand && !isProcessing ? onToggleExpand : undefined}
-            >
-              <span className="mt-0.5 shrink-0 text-xl leading-none">{icon}</span>
+        {/* === ДИНАМІЧНІ КУТИКИ === */}
+        <div style={{ borderLeft: `2.5px solid ${accentHex}`, borderTop: `2.5px solid ${accentHex}` }} className="absolute left-[2px] top-[2px] w-3 h-3" />
+        <div style={{ borderRight: `2.5px solid ${accentHex}`, borderTop: `2.5px solid ${accentHex}` }} className="absolute right-[2px] top-[2px] w-3 h-3" />
+        <div style={{ borderLeft: `2.5px solid ${accentHex}`, borderBottom: `2.5px solid ${accentHex}` }} className="absolute left-[2px] bottom-[2px] w-3 h-3" />
+        <div style={{ borderRight: `2.5px solid ${accentHex}`, borderBottom: `2.5px solid ${accentHex}` }} className="absolute right-[2px] bottom-[2px] w-3 h-3" />
+        {/* ======================= */}
 
-              <div className="min-w-0 flex-1">
-                <p className={`text-[14px] font-[600] leading-5 text-ink ${isDone || isFailed ? 'line-through opacity-50' : ''}`}>
-                  {title}
-                </p>
-                <p className="mt-[2px] text-[11px] leading-[14px] text-ink-soft">
-                  {habit.metricUnit
-                    ? `Target: ${habit.targetValue?.toLocaleString()} ${habit.metricUnit}`
-                    : 'Daily objective'}
-                </p>
-                {type === 'numeric' && (
-                  <ProgressBar value={loggedValue} max={habit.targetValue} unit={habit.metricUnit} />
-                )}
-              </div>
+          {/* Main content row */}
+          <div
+            className={`relative z-10 flex items-start gap-3 px-4 py-[15px] ${canExpand && !isProcessing ? 'cursor-pointer select-none' : ''}`}
+            onClick={canExpand && !isProcessing ? onToggleExpand : undefined}
+          >
+            <span className="mt-0.5 shrink-0 text-xl leading-none">{icon}</span>
 
-              {/* Action zone */}
-              <div
-                className="ml-1 flex shrink-0 items-center gap-1.5 self-center"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Edit button — pencil icon, always available */}
-                {onEdit && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                    aria-label="Edit habit"
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-ink/25 transition-colors active:bg-ink/10 active:text-ink/50"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" />
-                    </svg>
-                  </button>
-                )}
-
-                {isDone && (
-                  <CheckDone
-                    disabled={blocked}
-                    onClick={(e) => { e.stopPropagation(); onUndo(); }}
-                  />
-                )}
-                {isFailed && (
-                  <FailedBadge
-                    disabled={blocked}
-                    onClick={(e) => { e.stopPropagation(); onUndo(); }}
-                  />
-                )}
-                {isPending && (
-                  <>
-                    {type === 'boolean' && (
-                      <CheckEmpty
-                        disabled={blocked}
-                        onClick={(e) => { e.stopPropagation(); onDone(); }}
-                      />
-                    )}
-                    {type === 'numeric' && (
-                      <motion.button
-                        type="button"
-                        animate={{ rotate: isExpanded ? 45 : 0 }}
-                        transition={{ type: 'spring', stiffness: 320, damping: 24 }}
-                        disabled={blocked}
-                        onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{ background: `${accentHex}25`, border: `1px solid ${accentHex}50` }}
-                      >
-                        <span className="text-sm font-bold leading-none" style={{ color: accentHex }}>+</span>
-                      </motion.button>
-                    )}
-                    {type === 'slide' && (
-                      <SlideToFail onFail={onFail} disabled={blocked} />
-                    )}
-                  </>
-                )}
-              </div>
+            <div className="min-w-0 flex-1">
+              <p className={`text-[14px] font-[600] leading-5 text-ink ${isDone || isFailed ? 'line-through opacity-50' : ''}`}>
+                {title}
+              </p>
+              <p className="mt-[2px] text-[11px] leading-[14px] text-ink-soft">
+                {habit.metricUnit
+                  ? `Target: ${habit.targetValue?.toLocaleString()} ${habit.metricUnit}`
+                  : 'Daily objective'}
+              </p>
+              {type === 'numeric' && (
+                <ProgressBar value={loggedValue} max={habit.targetValue} unit={habit.metricUnit} />
+              )}
             </div>
 
-            {/* Numeric logger panel */}
-            <AnimatePresence initial={false}>
-              {isExpanded && canExpand && (
-                <motion.div
-                  key="logger"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ type: 'spring', stiffness: 280, damping: 28 }}
-                  className="relative z-10 overflow-hidden"
+            {/* Action zone */}
+            <div
+              className="ml-1 flex shrink-0 items-center gap-1.5 self-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                  aria-label="Edit habit"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-ink/25 transition-colors active:bg-ink/10 active:text-ink/50"
                 >
-                  <div className="border-t border-ink/10 bg-white/50 px-4 pb-4 pt-3">
-                    <NumericHabitLogger
-                      targetValue={habit.targetValue}
-                      unit={habit.metricUnit || ''}
-                      currentValue={loggedValue}
-                      disabled={isProcessing}
-                      onLog={onLog}
-                    />
-                  </div>
-                </motion.div>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" />
+                  </svg>
+                </button>
               )}
-            </AnimatePresence>
+
+              {isDone && (
+                <CheckDone
+                  disabled={blocked}
+                  accentHex={accentHex}
+                  onClick={(e) => { e.stopPropagation(); onUndo(); }}
+                />
+              )}
+              {isFailed && (
+                <FailedBadge
+                  disabled={blocked}
+                  onClick={(e) => { e.stopPropagation(); onUndo(); }}
+                />
+              )}
+              {isPending && (
+                <>
+                  {type === 'boolean' && (
+                    <CheckEmpty
+                      disabled={blocked}
+                      onClick={(e) => { e.stopPropagation(); onDone(); }}
+                    />
+                  )}
+                  {type === 'numeric' && (
+                    <motion.button
+                      type="button"
+                      animate={{ rotate: isExpanded ? 45 : 0 }}
+                      transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+                      disabled={blocked}
+                      onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ background: `${accentHex}25`, border: `1px solid ${accentHex}50` }}
+                    >
+                      <span className="text-sm font-bold leading-none" style={{ color: accentHex }}>+</span>
+                    </motion.button>
+                  )}
+                  {type === 'slide' && (
+                    <SlideToFail onFail={onFail} disabled={blocked} />
+                  )}
+                </>
+              )}
+            </div>
           </div>
+
+          {/* Numeric logger panel */}
+          <AnimatePresence initial={false}>
+            {isExpanded && canExpand && (
+              <motion.div
+                key="logger"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 280, damping: 28 }}
+                className="relative z-10 overflow-hidden"
+              >
+                <div className="border-t border-ink/10 bg-white/50 px-4 pb-4 pt-3">
+                  <NumericHabitLogger
+                    targetValue={habit.targetValue}
+                    unit={habit.metricUnit || ''}
+                    currentValue={loggedValue}
+                    disabled={isProcessing}
+                    onLog={onLog}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      </ChineseFrame>
     </motion.div>
   );
 }
@@ -515,7 +528,6 @@ function WeekStrip({ selectedDate, onSelectDate }) {
     setViewMonth(selectedDate.getMonth());
   }, [selectedDate]);
 
-  const today    = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
   const weekDays = useMemo(() => buildWeekForDate(selectedDate), [selectedDate]);
   const calDays  = useMemo(() => buildMonthCalendar(viewYear, viewMonth), [viewYear, viewMonth]);
 
@@ -762,12 +774,38 @@ export default function Dashboard() {
   const [processingHabits, setProcessingHabits] = useState(new Set());
 
   // ── Drawer state ──────────────────────────────────────────────────────────
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editHabit,  setEditHabit]  = useState(null);
+  const [drawerOpen,  setDrawerOpen]  = useState(false);
+  const [editHabit,   setEditHabit]   = useState(null);
+  const [isEditMode,  setIsEditMode]  = useState(false);
 
-  const openAddDrawer  = useCallback(() => { setEditHabit(null);  setDrawerOpen(true); }, []);
-  const openEditDrawer = useCallback((h) => { setEditHabit(h);    setDrawerOpen(true); }, []);
-  const closeDrawer    = useCallback(() => { setDrawerOpen(false); }, []);
+  // Catalog drawer
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const openCatalog  = useCallback(() => setCatalogOpen(true), []);
+  const closeCatalog = useCallback(() => setCatalogOpen(false), []);
+
+  // Pencil → edit existing user habit
+  const openEditDrawer = useCallback((h) => {
+    setEditHabit(h);
+    setIsEditMode(true);
+    setDrawerOpen(true);
+  }, []);
+
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  // Catalog selection → pre-fill form with template data (Fix 1)
+  const handleCatalogSelectHabit = useCallback((catalogHabit) => {
+    setCatalogOpen(false);
+    setEditHabit(catalogHabit); // pass through habit prop so useEffect fires
+    setIsEditMode(false);       // not an edit — create new from template
+    setDrawerOpen(true);
+  }, []);
+
+  const handleCatalogCreateCustom = useCallback(() => {
+    setCatalogOpen(false);
+    setEditHabit(null);
+    setIsEditMode(false);
+    setDrawerOpen(true);
+  }, []);
 
   // ── Yin/yang streak counts ────────────────────────────────────────────────
   const { yinCount, yangCount } = useMemo(() => {
@@ -1050,7 +1088,7 @@ export default function Dashboard() {
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.55 }}
         whileTap={{ scale: 0.90 }}
-        onClick={openAddDrawer}
+        onClick={openCatalog}
         aria-label="Add habit"
         className="fixed bottom-[84px] right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-jade"
         style={{ boxShadow: '0 4px 24px -4px rgba(107,155,107,0.65)' }}
@@ -1063,10 +1101,19 @@ export default function Dashboard() {
       {/* ── Bottom nav ───────────────────────────────────────────────── */}
       <BottomNav />
 
+      {/* ── Habit catalog drawer ─────────────────────────────────────── */}
+      <HabitCatalogDrawer
+        open={catalogOpen}
+        onClose={closeCatalog}
+        onSelectHabit={handleCatalogSelectHabit}
+        onCreateCustom={handleCatalogCreateCustom}
+      />
+
       {/* ── Habit form drawer ────────────────────────────────────────── */}
       <HabitFormDrawer
         open={drawerOpen}
         habit={editHabit}
+        isEdit={isEditMode}
         onClose={closeDrawer}
         onSaved={refreshData}
       />
