@@ -51,6 +51,11 @@ export default function Profile() {
     moodCheckins:  false,
   });
 
+  // State for Timezone overriding
+  const systemTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [timezoneMode, setTimezoneMode] = useState('auto'); // 'auto' or 'manual'
+  const [manualTimezone, setManualTimezone] = useState(systemTz);
+
   useEffect(() => {
     Promise.all([
       fetchRecentExecutions(100),
@@ -63,10 +68,6 @@ export default function Profile() {
       .catch(() => {})
       .finally(() => setLoadingTimeline(false));
   }, []);
-
-  const initials = user?.name
-    ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
-    : '?';
 
   const today = new Date();
   const todayExecs = executions
@@ -86,93 +87,100 @@ export default function Profile() {
 
   return (
     <div className="flex min-h-screen flex-col bg-rice">
+      
+      {/* ── Header ── */}
+      <div 
+        className="relative w-full bg-rice pb-8 pt-12 overflow-hidden" 
+        style={{ borderBottom: '1px solid rgba(229, 231, 235, 0.50)' }}
+      >
+        {/* Background Arc Watermark */}
+        <img
+          src={chineseArc}
+          alt=""
+          aria-hidden
+          className="absolute left-1/2 top-[60%] -translate-x-1/2 -translate-y-1/2 h-[150%] w-auto object-contain opacity-[0.08] pointer-events-none"
+        />
+        
+        <div className="relative z-10 mx-auto flex max-w-md flex-col items-center justify-center gap-1.5">
+           <h1 className="text-[22px] font-serif font-[500] tracking-wide text-[#364153]">
+             {user?.name || 'Jade Pavilion'}
+           </h1>
+           <p className="text-[12px] text-[#6A7282]">
+             {memberSinceYear ? `Member since ${memberSinceYear}` : 'Harmony Member'}
+           </p>
+        </div>
+      </div>
+
       <motion.main
         variants={pageVar}
         initial="hidden"
         animate="show"
-        className="mx-auto w-full max-w-md flex-1 px-4 pb-32 pt-0"
+        className="mx-auto w-full max-w-md flex-1 px-4 pb-32 pt-6"
       >
 
-        {/* ── Arc header ── */}
-        <motion.div
-          variants={itemVar}
-          className="relative -mx-4 mb-6 overflow-hidden rounded-b-3xl bg-jade/[0.06]"
-          style={{ height: 190 }}
-        >
-          <img
-            src={chineseArc}
-            alt=""
-            aria-hidden
-            className="absolute inset-0 h-full w-full object-contain opacity-[0.14] pointer-events-none"
-          />
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <div
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-jade/20 ring-4 ring-jade/25"
-              style={{ boxShadow: '0 0 0 8px rgba(143,188,143,0.08)' }}
-            >
-              <span className="font-serif text-[26px] font-[600] leading-none text-jade-deep">
-                {initials}
-              </span>
-            </div>
-            <h1 className="font-serif text-[21px] font-[600] text-ink">
-              {user?.name || 'Harmony User'}
-            </h1>
-            {user?.email && (
-              <p className="text-[12px] text-ink-mute">{user.email}</p>
-            )}
-            {memberSinceYear && (
-              <p className="text-[11px] text-ink/40">Member since {memberSinceYear}</p>
-            )}
-          </div>
-        </motion.div>
-
         {/* ── Today's Journey ── */}
-        <motion.div variants={itemVar} className="mb-4">
-          <p className="mb-2 px-1 text-[10px] font-[600] uppercase tracking-[0.10em] text-ink-mute">
-            Today's Journey
-          </p>
-          <div className="overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/60">
+        <motion.div variants={itemVar} className="mb-8">
+          <div className="mb-4 flex items-center gap-3">
+             <h2 className="text-[12px] font-[600] uppercase tracking-[1.2px] text-[#4A5565]">
+               Today's Journey
+             </h2>
+             <div className="flex-1 h-px bg-[#D1D5DC]" />
+          </div>
+          
+          <div className="overflow-hidden rounded-[14px] bg-white/60" style={{ outline: '1.5px solid rgba(229, 231, 235, 0.50)', outlineOffset: '-1.5px' }}>
             {loadingTimeline ? (
-              <div className="space-y-2 p-4">
-                {[1, 2].map((i) => (
-                  <div key={i} className="h-[44px] animate-pulse rounded-xl bg-ink/[0.06]" />
+              <div className="space-y-3 p-5">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 animate-pulse rounded-xl bg-ink/[0.06]" />
                 ))}
               </div>
             ) : todayExecs.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-6 text-center">
-                <span className="text-3xl">🌱</span>
-                <p className="text-[12px] text-ink-mute">No activity logged yet today</p>
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <span className="text-3xl opacity-50">🍃</span>
+                <p className="text-[12px] text-[#6A7282]">Your journey begins here.</p>
               </div>
             ) : (
-              <div className="relative px-4 py-4">
+              // Scrollable container for the timeline
+              <div className="relative px-5 py-5 max-h-[300px] overflow-y-auto custom-scrollbar">
+                
                 {/* Vertical spine */}
                 <div
-                  className="absolute left-[56px] top-[26px] w-px bg-jade/25"
-                  style={{ bottom: 32 }}
+                  className="absolute left-[64px] top-[30px] w-px bg-[#D1D5DC]"
+                  style={{ bottom: 40 }}
                 />
 
                 {todayExecs.map((exec) => {
                   const habit = habitMap[exec.userHabitId];
                   const icon  = habit?.iconEmoji || (habit?.isNegative ? '🚫' : '✅');
-                  const name  = habit?.customName || 'Activity';
+                  const name  = habit?.customName || habit?.title || 'Activity';
+                  const accentHex = habit?.colorHex || (habit?.isNegative ? '#C85A54' : '#8FBC8F');
+
                   return (
-                    <div key={exec.id} className="relative mb-3 flex items-center gap-3">
+                    <div key={exec.id} className="relative mb-4 flex items-center gap-4">
                       {/* Time */}
-                      <span className="w-10 shrink-0 text-right text-[10px] font-[500] leading-none text-ink-mute">
+                      <span className="w-9 shrink-0 text-right text-[11px] font-[500] text-[#6A7282]">
                         {formatTime(exec.executionTime)}
                       </span>
-                      {/* Dot */}
-                      <div className="relative z-10 shrink-0">
-                        <div className="h-2.5 w-2.5 rounded-full bg-jade shadow-sm" />
+                      
+                      {/* Interactive Dot */}
+                      <div className="relative z-10 flex shrink-0 items-center justify-center bg-white h-4 w-4 rounded-full">
+                        <div 
+                           className="h-[10px] w-[10px] rounded-full shadow-sm outline outline-1 outline-white" 
+                           style={{ backgroundColor: accentHex }}
+                        />
                       </div>
+                      
                       {/* Entry card */}
-                      <div className="flex flex-1 items-center gap-2 rounded-xl border border-ink/[0.06] bg-rice px-3 py-2">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-jade/10 text-base leading-none">
+                      <div className="flex flex-1 items-center gap-3 rounded-xl border border-ink/[0.06] bg-rice px-3 py-2.5">
+                        <div 
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none"
+                          style={{ backgroundColor: `${accentHex}15`, color: accentHex }}
+                        >
                           {icon}
                         </div>
-                        <p className="text-[12px] font-[500] text-ink">{name}</p>
+                        <p className="text-[13px] font-[500] text-[#364153] leading-snug">{name}</p>
                         {exec.loggedValue > 1 && (
-                          <span className="ml-auto text-[10px] font-[500] text-jade-deep">
+                          <span className="ml-auto text-[11px] font-[600]" style={{ color: accentHex }}>
                             +{exec.loggedValue}
                           </span>
                         )}
@@ -182,9 +190,11 @@ export default function Profile() {
                 })}
 
                 {/* Now indicator */}
-                <div className="relative flex items-center gap-3">
-                  <span className="w-10 shrink-0 text-right text-[10px] font-[600] text-jade">Now</span>
-                  <div className="relative z-10 h-2.5 w-2.5 animate-pulse rounded-full bg-jade" />
+                <div className="relative mt-2 flex items-center gap-4">
+                  <span className="w-9 shrink-0 text-right text-[12px] font-[400] italic text-[#6A7282]">Now</span>
+                  <div className="relative z-10 flex shrink-0 items-center justify-center bg-white h-4 w-4 rounded-full">
+                     <div className="h-[8px] w-[8px] animate-pulse rounded-full bg-[#99A1AF]" />
+                  </div>
                 </div>
               </div>
             )}
@@ -192,49 +202,56 @@ export default function Profile() {
         </motion.div>
 
         {/* ── Account ── */}
-        <motion.div variants={itemVar} className="mb-4">
-          <p className="mb-2 px-1 text-[10px] font-[600] uppercase tracking-[0.10em] text-ink-mute">
-            Account
-          </p>
-          <div className="overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/60">
-            {['Change Nickname', 'Change Password'].map((label, i) => (
-              <div
-                key={label}
+        <motion.div variants={itemVar} className="mb-6">
+          <div className="mb-3 flex items-center gap-3">
+             <h2 className="text-[12px] font-[600] uppercase tracking-[1.2px] text-[#4A5565]">
+               Account
+             </h2>
+             <div className="flex-1 h-px bg-[#D1D5DC]" />
+          </div>
+          <div className="overflow-hidden rounded-[14px] bg-white/60" style={{ outline: '1.5px solid rgba(229, 231, 235, 0.50)', outlineOffset: '-1.5px' }}>
+            {[
+              { label: 'Change Nickname', action: () => alert('Nickname modal coming soon!') },
+              { label: 'Change Password', action: () => alert('Password reset flow coming soon!') }
+            ].map((item, i) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={item.action}
                 className={[
-                  'flex cursor-default items-center gap-3 px-4 py-3.5 transition-colors active:bg-ink/[0.03]',
+                  'w-full flex items-center justify-between px-5 py-4 transition-colors active:bg-ink/[0.03]',
                   i === 0 ? 'border-b border-ink/[0.06]' : '',
                 ].join(' ')}
               >
-                <span className="flex-1 text-[13px] text-ink">{label}</span>
-                <span className="text-[11px] text-ink-mute">Coming soon</span>
+                <span className="text-[14px] font-[500] text-[#364153]">{item.label}</span>
                 <ChevronRight />
-              </div>
+              </button>
             ))}
           </div>
         </motion.div>
 
         {/* ── Preferences ── */}
-        <motion.div variants={itemVar} className="mb-4">
-          <p className="mb-2 px-1 text-[10px] font-[600] uppercase tracking-[0.10em] text-ink-mute">
-            Preferences
-          </p>
-          <div className="overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/60">
+        <motion.div variants={itemVar} className="mb-6">
+           <div className="mb-3 flex items-center gap-3">
+             <h2 className="text-[12px] font-[600] uppercase tracking-[1.2px] text-[#4A5565]">
+               Preferences
+             </h2>
+             <div className="flex-1 h-px bg-[#D1D5DC]" />
+          </div>
+          <div className="overflow-hidden rounded-[14px] bg-white/60" style={{ outline: '1.5px solid rgba(229, 231, 235, 0.50)', outlineOffset: '-1.5px' }}>
             {[
-              { label: 'Notifications',   key: 'notifications', activeColor: '#8FBC8F', subtitle: 'Daily habit reminders' },
-              { label: 'Habit Reminders', key: 'reminders',     activeColor: '#A8D5E2', subtitle: 'Custom schedule alerts' },
-              { label: 'Mood Check-ins',  key: 'moodCheckins',  activeColor: '#E8B4B4', subtitle: 'Evening reflection prompts' },
+              { label: 'Notifications',   key: 'notifications', activeColor: '#8FBC8F' },
+              { label: 'Habit Reminders', key: 'reminders',     activeColor: '#7AB8CC' },
+              { label: 'Mood Check-ins',  key: 'moodCheckins',  activeColor: '#E8B4B4' },
             ].map((item, i, arr) => (
               <div
                 key={item.key}
                 className={[
-                  'flex items-center gap-3 px-4 py-3.5',
+                  'flex items-center justify-between px-5 py-4',
                   i < arr.length - 1 ? 'border-b border-ink/[0.06]' : '',
                 ].join(' ')}
               >
-                <div className="flex-1">
-                  <p className="text-[13px] font-[500] text-ink">{item.label}</p>
-                  <p className="text-[11px] text-ink-mute">{item.subtitle}</p>
-                </div>
+                <span className="text-[14px] font-[400] text-[#364153]">{item.label}</span>
                 <ToggleSwitch
                   checked={prefs[item.key]}
                   onChange={(v) => setPrefs((p) => ({ ...p, [item.key]: v }))}
@@ -246,40 +263,60 @@ export default function Profile() {
         </motion.div>
 
         {/* ── System ── */}
-        <motion.div variants={itemVar} className="mb-4">
-          <p className="mb-2 px-1 text-[10px] font-[600] uppercase tracking-[0.10em] text-ink-mute">
-            System
-          </p>
-          <div className="overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/60">
-            <div className="flex items-center gap-3 px-4 py-3.5">
-              <span className="text-[18px] leading-none">🌏</span>
-              <span className="flex-1 text-[13px] text-ink">Timezone</span>
-              <span className="text-[12px] text-ink-mute">
-                {Intl.DateTimeFormat().resolvedOptions().timeZone}
-              </span>
+        <motion.div variants={itemVar} className="mb-8">
+           <div className="mb-3 flex items-center gap-3">
+             <h2 className="text-[12px] font-[600] uppercase tracking-[1.2px] text-[#4A5565]">
+               System
+             </h2>
+             <div className="flex-1 h-px bg-[#D1D5DC]" />
+          </div>
+          <div className="overflow-hidden rounded-[14px] bg-white/60" style={{ outline: '1.5px solid rgba(229, 231, 235, 0.50)', outlineOffset: '-1.5px' }}>
+            
+            <div className="flex items-center justify-between px-5 py-4 border-b border-ink/[0.06]">
+              <span className="text-[14px] font-[500] text-[#4A5565]">Timezone Mode</span>
+              <select 
+                className="bg-transparent text-[14px] font-[500] text-[#364153] outline-none text-right cursor-pointer"
+                value={timezoneMode}
+                onChange={(e) => setTimezoneMode(e.target.value)}
+              >
+                <option value="auto">Auto</option>
+                <option value="manual">Manual</option>
+              </select>
             </div>
+
+            <div className="flex items-center justify-between px-5 py-4">
+              <span className="text-[14px] font-[500] text-[#4A5565]">Timezone</span>
+              {timezoneMode === 'auto' ? (
+                <span className="text-[14px] font-[500] text-[#364153]">
+                  {systemTz}
+                </span>
+              ) : (
+                <select 
+                  className="bg-transparent text-[14px] font-[500] text-[#364153] outline-none text-right cursor-pointer"
+                  value={manualTimezone}
+                  onChange={(e) => setManualTimezone(e.target.value)}
+                >
+                  <option value="Europe/Kyiv">Europe/Kyiv</option>
+                  <option value="Europe/London">Europe/London</option>
+                  <option value="America/New_York">America/New_York</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo</option>
+                  {/* Додай інші, якщо потрібно */}
+                </select>
+              )}
+            </div>
+
           </div>
         </motion.div>
 
         {/* ── App identity ── */}
         <motion.div
           variants={itemVar}
-          className="mb-5 rounded-2xl border border-ink/[0.07] bg-white/40 px-4 py-4 text-center"
+          className="mb-8 flex flex-col items-center justify-center gap-1"
         >
-          <span className="font-seal text-2xl text-jade">和</span>
-          <p className="mt-1 text-[12px] font-[400] text-ink-mute">Harmony · v1.0.0</p>
-          <p className="text-[11px] text-ink/30">Cultivate virtue, one habit at a time.</p>
-        </motion.div>
-
-        {/* ── Sign Out ── */}
-        <motion.div variants={itemVar}>
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={logout}
-            className="w-full rounded-2xl border border-garnet/25 bg-garnet/[0.08] py-3.5 text-[14px] font-[500] text-garnet transition-colors active:bg-garnet/[0.14]"
-          >
-            Sign Out
-          </motion.button>
+          <img src={chineseArc} alt="Harmony Logo" className="h-10 opacity-40 mb-2" />
+          <p className="text-[10px] font-[400] text-[#99A1AF] tracking-[0.12px]">
+            和 Harmony v1.0.0
+          </p>
         </motion.div>
 
       </motion.main>
