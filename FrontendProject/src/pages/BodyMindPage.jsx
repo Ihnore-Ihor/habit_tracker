@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import SleepView from './SleepView.jsx';
 import AffectView from './AffectView.jsx';
@@ -15,7 +16,14 @@ const contentVar = {
 };
 
 export default function BodyMindPage() {
+  const location = useLocation();
   const [active, setActive] = useState('affect');
+
+  useEffect(() => {
+    if (location.state?.tab) {
+      setActive(location.state.tab);
+    }
+  }, [location.state]);
 
   return (
     <div className="min-h-screen bg-rice pb-28">
@@ -53,7 +61,7 @@ export default function BodyMindPage() {
       {/* ── Tab content ── */}
       <div className="mx-auto max-w-md px-4 pt-6">
         <AnimatePresence mode="wait">
-          {active === 'affect' ? (
+          {active === 'affect' && (
             <motion.div
               key="affect"
               variants={contentVar}
@@ -63,7 +71,8 @@ export default function BodyMindPage() {
             >
               <AffectView />
             </motion.div>
-          ) : (
+          )}
+          {active === 'sleep' && (
             <motion.div
               key="sleep"
               variants={contentVar}

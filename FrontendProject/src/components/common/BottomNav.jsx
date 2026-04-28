@@ -13,7 +13,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    id: 'sleep', label: 'Sleep/Mood', path: '/body-mind',
+    id: 'sleep', label: 'Body&Mind', path: '/body-mind', state: { tab: 'affect' },
     Icon: () => (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
         <path d="M14 3.5A7 7 0 1 1 4 14a5.5 5.5 0 0 0 10-10.5z" />
@@ -21,19 +21,19 @@ const NAV_ITEMS = [
     ),
   },
   {
-    id: 'awards', label: 'Awards', path: null,
+    id: 'stats', label: 'Stats', path: '/stats',
     Icon: () => (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="10" cy="7.5" r="4.5" />
-        <path d="M7 11.5l-2 5 5-1.5 5 1.5-2-5" />
+        <polyline points="3,15 7,9 11,12 17,4" />
       </svg>
     ),
   },
   {
-    id: 'analytics', label: 'Analytics', path: null,
+    id: 'achievements', label: 'Achievements', path: null,
     Icon: () => (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="3,15 7,9 11,12 17,4" />
+        <circle cx="10" cy="7.5" r="4.5" />
+        <path d="M7 11.5l-2 5 5-1.5 5 1.5-2-5" />
       </svg>
     ),
   },
@@ -72,7 +72,7 @@ export default function BottomNav() {
             return (
               <button
                 key={id}
-                onClick={() => item.path && navigate(item.path)}
+                onClick={() => item.path && navigate(item.path, { state: item.state })}
                 className={[
                   'flex flex-1 flex-col items-center gap-[5px] rounded-xl py-2 transition-colors',
                   isActive ? 'bg-jade/[0.15]' : '',
