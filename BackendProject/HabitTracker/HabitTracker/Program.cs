@@ -76,6 +76,9 @@ namespace HabitTracker
             // Phase 3 — Read-only analytics (CQRS over the SQL views).
             builder.Services.AddAnalytics();
 
+            // Phase 4 — Gamification / Awards (achievement catalog + personal progress + rarity).
+            builder.Services.AddAwards();
+
             var app = builder.Build();
 
             if (app.Environment.IsDevelopment())

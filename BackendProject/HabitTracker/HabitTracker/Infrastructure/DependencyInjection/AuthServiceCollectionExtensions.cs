@@ -2,6 +2,7 @@ using System.Text;
 using HabitTracker.Application.Services.Affect;
 using HabitTracker.Application.Services.Analytics;
 using HabitTracker.Application.Services.Auth;
+using HabitTracker.Application.Services.Awards;
 using HabitTracker.Application.Services.Catalog;
 using HabitTracker.Application.Services.Sleep;
 using HabitTracker.Application.Services.UserHabits;
@@ -92,6 +93,13 @@ namespace HabitTracker.Infrastructure.DependencyInjection
         public static IServiceCollection AddAnalytics(this IServiceCollection services)
         {
             services.AddScoped<IAnalyticsService, AnalyticsService>();
+            return services;
+        }
+
+        /// <summary>Registers <see cref="IAwardsService"/> (achievement catalog + per-user progress + rarity).</summary>
+        public static IServiceCollection AddAwards(this IServiceCollection services)
+        {
+            services.AddScoped<IAwardsService, AwardsService>();
             return services;
         }
     }

@@ -1,5 +1,6 @@
 using System.Text;
 using HabitTracker.Domain.Entities;
+using HabitTracker.Domain.ReadModels;
 using HabitTracker.Infrastructure.Outbox;
 using HabitTracker.Models;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +45,12 @@ namespace HabitTracker.Data
         /// <summary>Transactional outbox — populated by <c>IOutboxWriter</c>, drained by <c>OutboxDispatcherService</c>.</summary>
         public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
+        /// <summary>
+        /// Read-only projection of <c>mvw_achievement_rarity</c>.
+        /// Keyless — do not add migrations for this set.
+        /// </summary>
+        public DbSet<AchievementRarityView> AchievementRarityViews => Set<AchievementRarityView>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -74,7 +81,17 @@ namespace HabitTracker.Data
             //    infra concerns out of the domain-centric DbContext body.
             modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration());
 
-            // 4. Cross-cutting conventions — must run LAST so explicit per-entity names and types win.
+            // 4. Keyless read models (database views / materialized views).
+            //    HasNoKey() tells EF Core not to generate migrations for these sets.
+            modelBuilder.Entity<AchievementRarityView>(e =>
+            {
+                e.HasNoKey();
+                e.ToView("mvw_achievement_rarity");
+                e.Property(v => v.AchievementId).HasColumnName("achievement_id");
+                e.Property(v => v.UnlockRatePct).HasColumnName("unlock_rate_pct");
+            });
+
+            // 5. Cross-cutting conventions — must run LAST so explicit per-entity names and types win.
             ApplyDatabaseConventions(modelBuilder);
         }
 

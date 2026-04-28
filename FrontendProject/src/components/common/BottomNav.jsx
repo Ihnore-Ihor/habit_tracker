@@ -29,7 +29,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    id: 'achievements', label: 'Achievements', path: null,
+    id: 'achievements', label: 'Achievements', path: '/achievements',
     Icon: () => (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="10" cy="7.5" r="4.5" />
