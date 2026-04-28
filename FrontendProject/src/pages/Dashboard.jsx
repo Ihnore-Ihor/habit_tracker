@@ -342,8 +342,10 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, on
   // In read-only mode numeric cards don't expand
   const canExpand = type === 'numeric' && isPending && !isReadOnly;
 
-  // Effective disabled state for interaction controls
   const blocked = isProcessing || isReadOnly;
+
+  const schedule = habit.scheduleRule;
+  const timeLabels = { 1: 'Morning', 2: 'Afternoon', 3: 'Evening', 4: 'Night' };
 
   return (
     <motion.div layout variants={cardVar} className="relative w-full drop-shadow-sm">
@@ -375,9 +377,18 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, on
             <span className="mt-0.5 shrink-0 text-xl leading-none">{icon}</span>
 
             <div className="min-w-0 flex-1">
-              <p className={`text-[14px] font-[600] leading-5 text-ink ${isDone || isFailed ? 'line-through opacity-50' : ''}`}>
-                {title}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className={`text-[14px] font-[600] text-ink ${isDone || isFailed ? 'line-through opacity-50' : ''}`}>
+                  {title}
+                </p>
+                {(schedule?.timeSlot > 0 || schedule?.exactTime) && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-ink/5 text-ink-mute font-medium">
+                    {schedule.exactTime 
+                      ? schedule.exactTime.substring(0, 5) 
+                      : timeLabels[schedule.timeSlot]}
+                  </span>
+                )}
+              </div>
               <p className="mt-[2px] text-[11px] leading-[14px] text-ink-soft">
                 {habit.metricUnit
                   ? `Target: ${habit.targetValue?.toLocaleString()} ${habit.metricUnit}`
@@ -848,14 +859,44 @@ export default function Dashboard() {
 
   // ── Pavilion grouping ──────────────────────────────────────────────────────
   const { pavilionGroups, unknownHabits } = useMemo(() => {
-    const groups  = Object.fromEntries(Object.keys(PAVILION_CONFIG).map((k) => [k, []]));
+    const groups = Object.fromEntries(Object.keys(PAVILION_CONFIG).map((k) => [k, []]));
     const unknown = [];
+
+    // Визначаємо день тижня вибраної дати (0 = Sun, 1 = Mon...)
+    const selectedDayOfWeek = selectedDate.getDay(); 
+
     habits.forEach((h) => {
-      if (PAVILION_CONFIG[h.categoryId]) groups[h.categoryId].push(h);
-      else                               unknown.push(h);
+      // 1. Перевірка розкладу (Schedule Guard)
+      if (h.scheduleRule) {
+        const { scheduleRule: rule } = h;
+
+        // Якщо частота "Weekly" (1) і є масив днів — перевіряємо, чи входить сьогоднішній день
+        if (h.frequencyType === 1 && rule.daysOfWeek && !rule.daysOfWeek.includes(selectedDayOfWeek)) {
+          return; // Пропускаємо цю звичку, її немає в розкладі на сьогодні
+        }
+
+        // Якщо частота "Once" (3) — перевіряємо конкретну дату
+        if (h.frequencyType === 3 && rule.oneTimeDate) {
+          const targetDateStr = selectedDate.toISOString().split('T')[0];
+          if (rule.oneTimeDate !== targetDateStr) return;
+        }
+        
+        // Для "Monthly" (2) перевіряємо день місяця
+        if (h.frequencyType === 2 && rule.dayOfMonth && selectedDate.getDate() !== rule.dayOfMonth) {
+          return;
+        }
+      }
+
+      // 2. Розподіл по категоріях
+      if (PAVILION_CONFIG[h.categoryId]) {
+        groups[h.categoryId].push(h);
+      } else {
+        unknown.push(h);
+      }
     });
+
     return { pavilionGroups: groups, unknownHabits: unknown };
-  }, [habits]);
+  }, [habits, selectedDate]);
 
   // ── Processing locks ──────────────────────────────────────────────────────
   const lockHabit   = useCallback((id) => setProcessingHabits((s) => new Set(s).add(id)), []);
