@@ -23,6 +23,13 @@ namespace HabitTracker.Application.Services.Sleep
             int take,
             CancellationToken ct = default);
 
+        /// <summary>Sleep logs for the caller within a specific date range, ordered by SleepStart asc.</summary>
+        Task<IReadOnlyList<SleepLogDto>> GetSleepLogsAsync(
+            Guid userId,
+            DateTime? from,
+            DateTime? to,
+            CancellationToken ct = default);
+
         /// <summary>Returns the caller's sleep profile, or <c>null</c> if it has never been created.</summary>
         Task<SleepProfileDto?> GetSleepProfileAsync(
             Guid userId,

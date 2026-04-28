@@ -43,6 +43,18 @@ namespace HabitTracker.Controllers
             }
         }
 
+        /// <summary>Returns sleep logs within a specific date range.</summary>
+        [HttpGet]
+        [ProducesResponseType(typeof(IReadOnlyList<SleepLogDto>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<SleepLogDto>>> GetSleepLogs(
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to,
+            CancellationToken ct)
+        {
+            var userId = User.GetUserId();
+            return Ok(await _service.GetSleepLogsAsync(userId, from, to, ct));
+        }
+
         /// <summary>Returns the caller's most recent sleep logs.</summary>
         [HttpGet("logs")]
         [ProducesResponseType(typeof(IReadOnlyList<SleepLogDto>), StatusCodes.Status200OK)]

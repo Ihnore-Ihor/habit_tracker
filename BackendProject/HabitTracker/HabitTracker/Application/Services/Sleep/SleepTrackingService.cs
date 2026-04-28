@@ -85,6 +85,29 @@ namespace HabitTracker.Application.Services.Sleep
                 .ToListAsync(ct);
         }
 
+        public async Task<IReadOnlyList<SleepLogDto>> GetSleepLogsAsync(
+            Guid userId,
+            DateTime? from,
+            DateTime? to,
+            CancellationToken ct = default)
+        {
+            var startDate = from.HasValue ? DateTime.SpecifyKind(from.Value, DateTimeKind.Utc) : DateTime.UtcNow.AddDays(-7);
+            var endDate = to.HasValue ? DateTime.SpecifyKind(to.Value, DateTimeKind.Utc) : DateTime.UtcNow;
+
+            return await _db.SleepLogs.AsNoTracking()
+                .Where(s => s.UserId == userId && s.SleepStart >= startDate && s.SleepStart <= endDate)
+                .OrderBy(s => s.SleepStart)
+                .Select(s => new SleepLogDto
+                {
+                    Id = s.Id,
+                    SleepStart = s.SleepStart,
+                    SleepEnd = s.SleepEnd,
+                    SleepQuality = s.SleepQuality,
+                    Tags = s.Tags
+                })
+                .ToListAsync(ct);
+        }
+
         public async Task<SleepProfileDto?> GetSleepProfileAsync(
             Guid userId,
             CancellationToken ct = default)

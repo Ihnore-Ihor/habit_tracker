@@ -14,7 +14,9 @@ export const endpoints = {
     recentExecutions: '/api/user-habits/executions/recent',
   },
   sleep: {
-    list: '/api/sleep',
+    list:    '/api/sleep',
+    logs:    '/api/sleep/logs',
+    profile: '/api/sleep/profile',
   },
   affect: {
     list:    '/api/affect',

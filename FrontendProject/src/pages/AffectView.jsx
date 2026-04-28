@@ -4,7 +4,6 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Text, Line } from '@react-three/drei';
 import api from '../api/client.js';
 import { endpoints } from '../api/endpoints.js';
-import BottomNav from '../components/common/BottomNav.jsx';
 import { fetchDailyAffect, fetchAffectSummary } from '../api/affect.js';
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
@@ -239,14 +238,10 @@ export default function AffectView() {
   const hasSummary = summary && (summary.entryCount == null || summary.entryCount > 0);
 
   return (
-    <motion.div
-      className="min-h-screen bg-rice pb-28"
-      variants={pageVar} initial="hidden" animate="show"
-    >
-      <div className="mx-auto max-w-md px-4 pt-6">
+    <div className="space-y-4">
 
         {/* ── Page header ── */}
-        <motion.div variants={sectionVar} className="mb-5">
+        <motion.div variants={sectionVar} className="mb-1">
           <h1 className="font-serif text-[24px] font-[600] text-ink">Mood Journal</h1>
           <p className="text-[12px] text-ink-mute">Circumplex model · Pleasure · Arousal · Dominance</p>
         </motion.div>
@@ -508,9 +503,6 @@ export default function AffectView() {
           )}
         </motion.section>
 
-      </div>
-
-      <BottomNav />
-    </motion.div>
+    </div>
   );
 }

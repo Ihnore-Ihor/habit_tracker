@@ -10,7 +10,7 @@ import Dashboard from '../pages/Dashboard.jsx';
 import Profile from '../pages/Profile.jsx';
 import ContentManagerHome from '../pages/ContentManagerHome.jsx';
 import AnalystHome from '../pages/AnalystHome.jsx';
-import AffectView from '../pages/AffectView.jsx';
+import BodyMindPage from '../pages/BodyMindPage.jsx';
 import NotFound from '../pages/NotFound.jsx';
 import Forbidden from '../pages/Forbidden.jsx';
 
@@ -48,7 +48,7 @@ export default function AppRouter() {
           path="/body-mind"
           element={
             <ProtectedRoute allow={[ROLES.USER]}>
-              <AffectView />
+              <BodyMindPage />
             </ProtectedRoute>
           }
         />

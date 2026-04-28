@@ -62,8 +62,31 @@ namespace HabitTracker.Data
 
             // 5. Create subscriptions (UserHabits)
             // NOTE: we must specify CategoryId for UserHabit as it's a required FK
-            var uhRead = new UserHabit { UserId = user.Id, HabitId = hRead.Id, CategoryId = catStudy.Id, CustomName = "Read classical literature", FrequencyType = Models.FrequencyType.Daily, ScheduleRule = new ScheduleRule { TimeSlot = TimeSlot.Evening } }; 
-            var uhWater = new UserHabit { UserId = user.Id, HabitId = hWater.Id, CategoryId = catHealth.Id, CustomName = "Water intake", FrequencyType = Models.FrequencyType.Daily, TargetValue = 2000, MetricUnit = "ml" };
+            var uhRead = new UserHabit 
+            { 
+                UserId = user.Id, 
+                HabitId = hRead.Id, 
+                CategoryId = catStudy.Id, 
+                CustomName = "Read classical literature", 
+                FrequencyType = Models.FrequencyType.Daily, 
+                ScheduleRule = new ScheduleRule { TimeSlot = TimeSlot.Evening },
+                IconEmoji = "📚",
+                ColorHex = "#A8D5E2"
+            }; 
+
+            var uhWater = new UserHabit 
+            { 
+                UserId = user.Id, 
+                HabitId = hWater.Id, 
+                CategoryId = catHealth.Id, 
+                CustomName = "Water intake", 
+                FrequencyType = Models.FrequencyType.Daily, 
+                TargetValue = 2000, 
+                MetricUnit = "ml",
+                IconEmoji = "💧",
+                ColorHex = "#E8B4B4"
+            };
+
             var uhSnack = new UserHabit 
             { 
                 UserId = user.Id, 
@@ -73,7 +96,9 @@ namespace HabitTracker.Data
                 FrequencyType = Models.FrequencyType.Daily, 
                 IsNegative = true,
                 CurrentStreak = 27,
-                LongestStreak = 27
+                LongestStreak = 27,
+                IconEmoji = "🍪",
+                ColorHex = "#C85A54"
             };
             
             db.UserHabits.AddRange(uhRead, uhWater, uhSnack);
