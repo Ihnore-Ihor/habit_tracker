@@ -100,31 +100,38 @@ const AnalyticsView = () => {
 
         const habits = habitsRes.data || [];
 
-        const strengthLabel = (abs) => {
-          if (abs >= 0.2) return 'Strong';
-          if (abs >= 0.1) return 'Moderate';
-          return 'Weak';
-        };
-
         const allInsights = [];
         (corrsRes.data || []).forEach(corr => {
+          // Normalize correlation fields (backend uses PascalCase)
           const sampleDays      = corr.sampleDays      ?? corr.SampleDays      ?? 0;
           const pearsonPleasure = corr.pearsonPleasure  ?? corr.PearsonPleasure;
           const pearsonArousal  = corr.pearsonArousal   ?? corr.PearsonArousal;
           const habitId         = corr.userHabitId      ?? corr.UserHabitId;
 
+          // Only show insights with at least 1 day of data (ideally 3+, but 1 for visibility)
           if (sampleDays < 1) return;
 
-          const habit = habits.find(h =>
-            (h.userHabitId ?? h.UserHabitId ?? h.id ?? h.Id) === habitId
-          );
+          const habit = habits.find(h => {
+            const hId = h.userHabitId ?? h.UserHabitId ?? h.id ?? h.Id;
+            return hId === habitId;
+          });
+
           const habitName = habit
-            ? (habit.displayName ?? habit.DisplayName ?? habit.customName ?? habit.name ?? 'this habit').toLowerCase()
+            ? (habit.displayName ?? habit.DisplayName ?? habit.customName ?? habit.CustomName ?? habit.title ?? habit.Title ?? 'this habit').toLowerCase()
             : 'specific habits';
 
-          if (pearsonPleasure != null && Math.abs(pearsonPleasure) > 0.02) {
+          const strengthLabel = (abs) => {
+            if (abs >= 0.4) return 'Very Strong';
+            if (abs >= 0.2) return 'Strong';
+            if (abs >= 0.1) return 'Moderate';
+            return 'Subtle';
+          };
+
+          // Pleasure Correlation
+          if (pearsonPleasure != null && Math.abs(pearsonPleasure) > 0.01) {
             allInsights.push({
               abs: Math.abs(pearsonPleasure),
+              icon: habit?.iconEmoji ?? habit?.IconEmoji ?? '✨',
               text: pearsonPleasure > 0
                 ? `Your mood is higher on days you do ${habitName}`
                 : `Your mood tends to be lower when doing ${habitName}`,
@@ -134,9 +141,11 @@ const AnalyticsView = () => {
             });
           }
 
-          if (pearsonArousal != null && Math.abs(pearsonArousal) > 0.02) {
+          // Arousal Correlation
+          if (pearsonArousal != null && Math.abs(pearsonArousal) > 0.01) {
             allInsights.push({
               abs: Math.abs(pearsonArousal),
+              icon: habit?.iconEmoji ?? habit?.IconEmoji ?? '✨',
               text: pearsonArousal > 0
                 ? `You feel more energized & focused with ${habitName}`
                 : `${habitName} helps you feel calm and relaxed`,
@@ -314,8 +323,8 @@ const AnalyticsView = () => {
         <div className="grid grid-cols-1 gap-3">
           {dashboardData.insights.length > 0 ? dashboardData.insights.map((insight, i) => (
             <div key={i} className="bg-white/60 rounded-[18px] p-4 outline outline-1 outline-black/5 flex items-center justify-between gap-4">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${insight.color}15` }}>
-                <div className="w-4 h-4 border-2 rounded-sm" style={{ borderColor: insight.color }} />
+              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-[20px]" style={{ backgroundColor: `${insight.color}15` }}>
+                {insight.icon}
               </div>
               <p className="flex-1 text-[13px] text-[#364153] leading-relaxed">
                 {insight.text}

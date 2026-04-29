@@ -135,6 +135,27 @@ namespace HabitTracker.Application.Services.UserHabits
             return MapExecution(execution);
         }
 
+        public async Task<IReadOnlyList<HabitExecutionDto>> GetExecutionsAsync(
+            Guid userId,
+            DateTime from,
+            DateTime to,
+            CancellationToken ct = default)
+        {
+            return await _db.HabitExecutions.AsNoTracking()
+                .Where(e => e.UserHabit.UserId == userId && e.ExecutionTime >= from && e.ExecutionTime <= to)
+                .OrderByDescending(e => e.ExecutionTime)
+                .Select(e => new HabitExecutionDto
+                {
+                    Id = e.Id,
+                    UserHabitId = e.UserHabitId,
+                    ExecutionTime = e.ExecutionTime,
+                    CreatedAt = e.CreatedAt,
+                    LoggedValue = e.LoggedValue,
+                    Note = e.Note
+                })
+                .ToListAsync(ct);
+        }
+
         public async Task<IReadOnlyList<HabitExecutionDto>> GetRecentExecutionsAsync(
             Guid userId,
             int take,

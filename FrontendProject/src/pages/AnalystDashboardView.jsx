@@ -24,6 +24,8 @@ const AnalystDashboardView = () => {
   const [otherProposals, setOtherProposals] = useState([]);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAll, setShowAll] = useState(false);
 
   // Стейт для форми нової пропозиції
   const [form, setForm] = useState({ habitId: '', proposedChange: '', argumentation: '' });
@@ -88,6 +90,12 @@ const AnalystDashboardView = () => {
     setForm(prev => ({ ...prev, habitId: habitId }));
     document.getElementById('proposal-form').scrollIntoView({ behavior: 'smooth' });
   };
+  
+  const filteredHabits = needsAttention.filter(h => {
+    const matchesSearch = h.title.toLowerCase().includes(searchTerm.toLowerCase());
+    if (showAll) return matchesSearch;
+    return matchesSearch && h.dropoffRatePct > 15; // Show only high drop-off by default
+  });
 
   if (isLoading) return <div className="flex justify-center items-center h-screen text-gray-400">Loading Analyst Data...</div>;
 
@@ -128,9 +136,23 @@ const AnalystDashboardView = () => {
             
             {/* 1. Needs Attention Table */}
             <div className="bg-white/60 backdrop-blur-sm rounded-[14px] border border-gray-200 overflow-hidden shadow-sm">
-              <div className="px-6 py-4 bg-white/40 border-b border-gray-200">
-                <h2 className="text-[18px] font-medium">Global Habit Performance (Needs Attention)</h2>
-                <p className="text-[12px] text-[#6A7282]">Habits with high drop-off rates requiring analyst intervention</p>
+              <div className="px-6 py-4 bg-white/40 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-[18px] font-medium">Global Habit Performance {showAll ? '' : '(Needs Attention)'}</h2>
+                  <p className="text-[12px] text-[#6A7282]">
+                    {showAll ? 'Complete list of all global habits and their performance' : 'Habits with high drop-off rates requiring analyst intervention'}
+                  </p>
+                </div>
+                <div className="relative w-full md:w-64">
+                  <input 
+                    type="text" 
+                    placeholder="Search habit..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-4 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] focus:outline-none focus:border-[#7AB8CC]"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30">🔍</span>
+                </div>
               </div>
               
               <div className="overflow-x-auto">
@@ -139,28 +161,31 @@ const AnalystDashboardView = () => {
                     <tr>
                       <th className="px-6 py-4">Habit Name</th>
                       <th className="px-6 py-4">Active Users</th>
-                      <th className="px-6 py-4">Avg Completion</th>
+                      <th className="px-6 py-4">Avg Logs/User</th>
                       <th className="px-6 py-4">Drop-off Rate</th>
                       <th className="px-6 py-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200/60 bg-white/30">
-                    {needsAttention.length > 0 ? needsAttention.map((habit, idx) => (
-                      <tr key={idx} className="hover:bg-red-50/20 transition-colors">
+                    {filteredHabits.length > 0 ? filteredHabits.map((habit, idx) => (
+                      <tr key={idx} className={`hover:bg-red-50/20 transition-colors ${habit.dropoffRatePct > 30 ? 'bg-red-50/10' : ''}`}>
                         <td className="px-6 py-4 font-medium">{habit.title}</td>
                         <td className="px-6 py-4 text-[#4A5565]">{habit.subscribersActive?.toLocaleString() || 0}</td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium w-10">{Math.round(habit.avgExecutions || 0)}%</span>
+                            <span className="font-medium w-10">{Math.round(habit.avgExecutions || 0)}</span>
                             <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-[#8FBC8F]" style={{ width: `${Math.min(100, habit.avgExecutions || 0)}%` }} />
+                              {/* Normalize to 30 logs as a reference point for visual fill */}
+                              <div className="h-full bg-[#8FBC8F]" style={{ width: `${Math.min(100, (habit.avgExecutions || 0) * 3.3)}%` }} />
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-[#E7000B]">{Math.round(habit.dropoffRatePct || 0)}%</span>
-                            <div className="w-3 h-1.5 border-[1.5px] border-[#FB2C36] rounded-[2px]" />
+                            <span className={`font-semibold ${habit.dropoffRatePct > 25 ? 'text-[#E7000B]' : 'text-[#4A5565]'}`}>
+                              {Math.round(habit.dropoffRatePct || 0)}%
+                            </span>
+                            {habit.dropoffRatePct > 25 && <div className="w-3 h-1.5 border-[1.5px] border-[#FB2C36] rounded-[2px]" />}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -175,7 +200,7 @@ const AnalystDashboardView = () => {
                     )) : (
                       <tr>
                         <td colSpan="5" className="px-6 py-8 text-center text-gray-400 text-[13px]">
-                          Everything looks healthy. No habits currently flag for high drop-off.
+                          {searchTerm ? 'No habits found matching your search.' : 'Everything looks healthy. No habits currently flag for high drop-off.'}
                         </td>
                       </tr>
                     )}
@@ -185,10 +210,13 @@ const AnalystDashboardView = () => {
               
               <div className="px-6 py-3 bg-gray-50/30 border-t border-gray-200 flex justify-between items-center">
                 <span className="text-[12px] text-[#4A5565]">
-                  Showing {needsAttention.length} habits | <span className="font-semibold text-[#E7000B]">{needsAttention.filter(h => h.dropoffRatePct > 50).length}</span> high-priority
+                  Showing {filteredHabits.length} habits | <span className="font-semibold text-[#E7000B]">{needsAttention.filter(h => h.dropoffRatePct > 30).length}</span> high-priority
                 </span>
-                <button className="text-[#7AB8CC] text-[14px] font-medium hover:underline">
-                  View All Habits Data ↗
+                <button 
+                  onClick={() => setShowAll(!showAll)}
+                  className="text-[#7AB8CC] text-[14px] font-medium hover:underline"
+                >
+                  {showAll ? 'Show High Drop-off Only' : 'View All Habits Data ↗'}
                 </button>
               </div>
             </div>
@@ -260,8 +288,8 @@ const AnalystDashboardView = () => {
             {/* 2. Sleep Algorithm AI Effectiveness */}
             <div className="bg-gradient-to-br from-[#7AB8CC]/10 to-[#8FBC8F]/10 rounded-[14px] border border-[#7AB8CC]/30 p-6 flex flex-col gap-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#7AB8CC] to-[#8FBC8F] flex items-center justify-center shadow-sm">
-                  <div className="w-4 h-4 border-[1.5px] border-white" />
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#7AB8CC] to-[#8FBC8F] flex items-center justify-center shadow-sm text-white text-[20px]">
+                  🤖
                 </div>
                 <div>
                   <h3 className="text-[16px] font-medium">Sleep Algorithm</h3>
@@ -284,7 +312,7 @@ const AnalystDashboardView = () => {
 
                   <div className="border-t border-gray-300/50 pt-4 mt-2 flex flex-col gap-2">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-3 h-3 border-[1.5px] border-[#8FBC8F] rounded-sm" />
+                      <span className="text-[14px]">📈</span>
                       <span className="text-[12px] font-medium text-[#4A5565]">Impact Metrics</span>
                     </div>
                     

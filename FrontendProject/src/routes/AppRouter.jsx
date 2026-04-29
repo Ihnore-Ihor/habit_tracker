@@ -73,7 +73,7 @@ export default function AppRouter() {
         <Route
           path="/catalog"
           element={
-            <ProtectedRoute allow={[ROLES.CONTENT_MANAGER]}>
+            <ProtectedRoute allow={[ROLES.CONTENT_MANAGER, ROLES.ANALYST]}>
               <ContentManagerView />
             </ProtectedRoute>
           }
@@ -81,7 +81,7 @@ export default function AppRouter() {
         <Route
           path="/analytics"
           element={
-            <ProtectedRoute allow={[ROLES.ANALYST]}>
+            <ProtectedRoute allow={[ROLES.ANALYST, ROLES.CONTENT_MANAGER]}>
               <AnalystDashboardView />
             </ProtectedRoute>
           }

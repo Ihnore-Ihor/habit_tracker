@@ -38,6 +38,13 @@ namespace HabitTracker.Application.Services.UserHabits
             int take,
             CancellationToken ct = default);
 
+        /// <summary>Returns executions within a specific date range (UTC).</summary>
+        Task<IReadOnlyList<HabitExecutionDto>> GetExecutionsAsync(
+            Guid userId,
+            DateTime from,
+            DateTime to,
+            CancellationToken ct = default);
+
         /// <summary>Updates an existing user habit subscription.</summary>
         Task UpdateUserHabitAsync(
             Guid userId,

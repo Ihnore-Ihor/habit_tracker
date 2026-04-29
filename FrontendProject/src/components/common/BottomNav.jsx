@@ -15,8 +15,8 @@ const NAV_ITEMS = [
   {
     id: 'sleep', label: 'Body&Mind', path: '/body-mind', state: { tab: 'affect' },
     Icon: () => (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-        <path d="M14 3.5A7 7 0 1 1 4 14a5.5 5.5 0 0 0 10-10.5z" />
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 18s-7-4.11-7-9.5A3.5 3.5 0 0 1 6.5 5c1.1 0 2.11.5 3.5 1.5 1.39-1 2.4-1.5 3.5-1.5A3.5 3.5 0 0 1 17 8.5c0 5.39-7 9.5-7 9.5z" />
       </svg>
     ),
   },

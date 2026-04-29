@@ -9,26 +9,31 @@
 -- ---------------------------------------------------------------------------
 -- mvw_global_habit_stats
 -- Per-habit global metrics for the content-management dashboard.
--- NOTE: "drop-off rate" here = share of subscribed users whose subscription is
--- currently archived (is_archived = true). Counting is done relative to total
--- distinct subscribers (active + archived) so churned users are visible.
+-- NOTE: "drop-off rate" here = share of subscribers who have not logged
+-- an execution in the last 14 days. This is a more actionable churn metric
+-- than just counting archived subscriptions.
 -- ---------------------------------------------------------------------------
 DROP MATERIALIZED VIEW IF EXISTS mvw_global_habit_stats;
 CREATE MATERIALIZED VIEW mvw_global_habit_stats AS
 WITH subs AS (
     SELECT habit_id,
-           COUNT(DISTINCT user_id)                                  AS subscribers_total,
-           COUNT(DISTINCT user_id) FILTER (WHERE is_archived=false) AS subscribers_active,
-           COUNT(DISTINCT user_id) FILTER (WHERE is_archived=true)  AS subscribers_archived
+           COUNT(DISTINCT user_id) AS subscribers_total
     FROM user_habits
     WHERE habit_id IS NOT NULL
     GROUP BY habit_id
+),
+recent_activity AS (
+    -- Users who logged at least once in the last 14 days
+    SELECT uh.habit_id, COUNT(DISTINCT uh.user_id) AS active_last_14d
+    FROM habit_executions he
+    JOIN user_habits uh ON uh.id = he.user_habit_id
+    WHERE he.execution_time >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+    GROUP BY uh.habit_id
 ),
 exec_counts AS (
     SELECT uh.habit_id, COUNT(*)::NUMERIC AS total_executions
     FROM habit_executions he
     JOIN user_habits uh ON uh.id = he.user_habit_id
-    WHERE uh.habit_id IS NOT NULL
     GROUP BY uh.habit_id
 )
 SELECT
@@ -36,20 +41,21 @@ SELECT
     h.title,
     h.category_id,
     COALESCE(s.subscribers_total, 0)                     AS subscribers_total,
-    COALESCE(s.subscribers_active, 0)                    AS subscribers_active,
-    COALESCE(s.subscribers_archived, 0)                  AS subscribers_archived,
+    COALESCE(ra.active_last_14d, 0)                      AS subscribers_active,
+    COALESCE(s.subscribers_total, 0) - COALESCE(ra.active_last_14d, 0) AS subscribers_archived,
     CASE
         WHEN COALESCE(s.subscribers_total, 0) = 0 THEN 0
-        ELSE 100.0 * COALESCE(s.subscribers_archived, 0) / s.subscribers_total
+        ELSE 100.0 * (COALESCE(s.subscribers_total, 0) - COALESCE(ra.active_last_14d, 0)) / s.subscribers_total
     END                                                  AS dropoff_rate_pct,
     COALESCE(e.total_executions, 0)                      AS total_executions,
     CASE
-        WHEN COALESCE(s.subscribers_active, 0) = 0 THEN 0
-        ELSE COALESCE(e.total_executions, 0) / s.subscribers_active
+        WHEN COALESCE(ra.active_last_14d, 0) = 0 THEN 0
+        ELSE COALESCE(e.total_executions, 0) / ra.active_last_14d
     END                                                  AS avg_executions_per_active_user
 FROM habits h
-LEFT JOIN subs s         ON s.habit_id = h.id
-LEFT JOIN exec_counts e  ON e.habit_id = h.id;
+LEFT JOIN subs s            ON s.habit_id = h.id
+LEFT JOIN recent_activity ra ON ra.habit_id = h.id
+LEFT JOIN exec_counts e     ON e.habit_id = h.id;
 
 CREATE UNIQUE INDEX idx_mvw_global_habit_stats_habit ON mvw_global_habit_stats (habit_id);
 

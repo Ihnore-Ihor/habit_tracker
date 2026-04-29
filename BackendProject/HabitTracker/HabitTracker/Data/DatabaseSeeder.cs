@@ -14,7 +14,21 @@ namespace HabitTracker.Data
             "alice@example.com", "igmail@gmail.com", "bgmail@gmail.com"
         };
 
-        private record UserHabitInfo(Guid Id, bool IsNegative, decimal? TargetValue);
+        private class UserHabitInfo
+        {
+            public Guid Id { get; init; }
+            public bool IsNegative { get; init; }
+            public decimal? TargetValue { get; init; }
+            public int CurrentStreak { get; set; }
+            public int LongestStreak { get; set; }
+
+            public UserHabitInfo(Guid id, bool isNegative, decimal? targetValue)
+            {
+                Id = id;
+                IsNegative = isNegative;
+                TargetValue = targetValue;
+            }
+        }
         private record UserInfo(Guid UserId, string Timezone, List<UserHabitInfo> UserHabits);
 
         // ── Entry point ───────────────────────────────────────────────────────────
@@ -77,6 +91,15 @@ namespace HabitTracker.Data
                 db.ChangeTracker.AutoDetectChangesEnabled = true;
             }
 
+            // Re-sync the static current_streak / longest_streak columns from the
+            // actual execution history. The trigger-based system fires on each insert
+            // but lacks the "previous consecutive day" context needed during bulk seeding,
+            // so Yin streaks stay at zero and Yang streaks may drift. sp_resync_streaks
+            // corrects both using fn_calc_current_streak / fn_calc_longest_streak.
+            Console.WriteLine("[Seeder] Step 4b: Re-syncing streaks from execution history...");
+            await db.Database.ExecuteSqlRawAsync("CALL sp_resync_streaks()");
+            Console.WriteLine("[Seeder] Streak resync complete.");
+
             Console.WriteLine("[Seeder] Step 5: Refreshing materialized views...");
             await RefreshMaterializedViewsAsync(db);
 
@@ -138,8 +161,8 @@ namespace HabitTracker.Data
             var vipDefs = new[]
             {
                 (Id: Guid.Parse("019dd585-b649-7bac-b8f4-40dfa0c1a566"), RoleId: 1, Nickname: "Alice",  Email: "alice@example.com", Hash: "$2a$11$36InzFnvxY72gQT5rqrK7eZBZXiDdd6Cz0bSW/rOxcuHeDPYC/tbm", Tz: "Europe/Kyiv"),
-                (Id: Guid.Parse("c0e534bd-ebcf-4b9b-b4d4-2eb73e501630"), RoleId: 3, Nickname: "Ihor",   Email: "igmail@gmail.com",  Hash: "$2a$12$PC4cNm6UQ7Z1ZXCPw.2ZYuvu07H1wZWxjHegcLzUz/6taLe1iSG1S", Tz: "Europe/Kiev"),
-                (Id: Guid.Parse("fdf4e1dc-058f-4bdb-950b-b0389f306594"), RoleId: 2, Nickname: "Ihor2",  Email: "bgmail@gmail.com",  Hash: "$2a$12$frkAaUrAusDLz66GrEDTguzGMBc1ooxcLuTbQ8P2bMR61a661knrC", Tz: "Europe/Kiev")
+                (Id: Guid.Parse("c0e534bd-ebcf-4b9b-b4d4-2eb73e501630"), RoleId: 3, Nickname: "Ihor",   Email: "igmail@gmail.com",  Hash: "$2a$12$PC4cNm6UQ7Z1ZXCPw.2ZYuvu07H1wZWxjHegcLzUz/6taLe1iSG1S", Tz: "Europe/Kyiv"),
+                (Id: Guid.Parse("fdf4e1dc-058f-4bdb-950b-b0389f306594"), RoleId: 2, Nickname: "Ihor2",  Email: "bgmail@gmail.com",  Hash: "$2a$12$frkAaUrAusDLz66GrEDTguzGMBc1ooxcLuTbQ8P2bMR61a661knrC", Tz: "Europe/Kyiv")
             };
 
             // 4 positive global habit indices + 1 negative
@@ -189,7 +212,8 @@ namespace HabitTracker.Data
                         MetricUnit    = mu,
                         IsNegative    = false,
                         ColorHex      = cats.First(c => c.Id == h.CategoryId).ColorHex,
-                        IconEmoji     = h.IconEmoji
+                        IconEmoji     = h.IconEmoji,
+                        CustomName    = h.Title
                     };
                     db.UserHabits.Add(uh);
                     uhList.Add(new UserHabitInfo(uh.Id, false, tv));
@@ -204,7 +228,8 @@ namespace HabitTracker.Data
                     FrequencyType = FrequencyType.Daily,
                     IsNegative    = true,
                     ColorHex      = "#C85A54",
-                    IconEmoji     = negH.IconEmoji
+                    IconEmoji     = negH.IconEmoji,
+                    CustomName    = negH.Title
                 };
                 db.UserHabits.Add(uhNeg);
                 uhList.Add(new UserHabitInfo(uhNeg.Id, true, null));
@@ -226,19 +251,17 @@ namespace HabitTracker.Data
                 return new List<UserInfo>();
             }
 
-            var rnd          = new Random(99);
-            int batchSize    = 1000;
-            int count        = 0;
-            var seenIds      = new HashSet<Guid>();
-            var result       = new List<UserInfo>();
-            // Positive habit pool: indices 0-6
-            var posPool      = Enumerable.Range(0, 7).ToArray();
+            int batchSize = 1000;
+            int count = 0;
+            var userMap = new Dictionary<Guid, UserInfo>();
+            var habitLookup = habits.ToDictionary(h => h.Title, h => h, StringComparer.OrdinalIgnoreCase);
+            var healthCatId = cats.FirstOrDefault(c => c.Name == "Health")?.Id ?? cats[0].Id;
 
             db.ChangeTracker.AutoDetectChangesEnabled = false;
             try
             {
                 using var reader = new StreamReader(csvFilePath);
-                await reader.ReadLineAsync(); // header
+                var headerLine = await reader.ReadLineAsync(); // header
 
                 string? line;
                 while ((line = await reader.ReadLineAsync()) != null)
@@ -251,74 +274,93 @@ namespace HabitTracker.Data
                     if (VipEmails.Contains(email)) continue;
 
                     if (!Guid.TryParse(f[0], out Guid userId)) userId = Guid.NewGuid();
-                    if (!seenIds.Add(userId)) continue; // duplicate row
 
-                    var tz = string.IsNullOrWhiteSpace(f[5]) ? "UTC" : f[5];
-
-                    db.Users.Add(new User
+                    // 1. Ensure User exists
+                    if (!userMap.TryGetValue(userId, out var userInfo))
                     {
-                        Id           = userId,
-                        RoleId       = int.TryParse(f[1], out int rid) ? rid : 1,
-                        Nickname     = f[2],
-                        Email        = email,
-                        PasswordHash = f[4],
-                        Timezone     = tz
-                    });
+                        var rawTz = string.IsNullOrWhiteSpace(f[5]) ? "UTC" : f[5];
+                        var tz = rawTz.Equals("Europe/Kiev", StringComparison.OrdinalIgnoreCase) ? "Europe/Kyiv" : rawTz;
 
-                    db.UserSleepProfiles.Add(new UserSleepProfile
-                    {
-                        UserId                = userId,
-                        TargetWakeTime        = TimeOnly.TryParse(f[7], out var twt)  ? twt  : new TimeOnly(7, 0),
-                        BaseSleepHours        = decimal.TryParse(f[8],  NumberStyles.Any, CultureInfo.InvariantCulture, out decimal bsh) ? bsh  : 8m,
-                        AbsoluteMinSleepHours = decimal.TryParse(f[9],  NumberStyles.Any, CultureInfo.InvariantCulture, out decimal ams) ? Math.Max(ams, 0.1m) : 6m,
-                        ShiftStepMinutes      = int.TryParse(f[10], out int ssm)      ? ssm  : 15,
-                        WeekendDeviationHours = decimal.TryParse(f[11], NumberStyles.Any, CultureInfo.InvariantCulture, out decimal wdh) ? wdh  : 0m,
-                        CurrentWakeTime       = TimeOnly.TryParse(f[12], out var cwt) ? cwt  : new TimeOnly(7, 0),
-                        SleepDebtMinutes      = int.TryParse(f[13], out int sdm)      ? sdm  : 0
-                    });
-
-                    // Assign 2-3 random positive habits
-                    var chosenIdx = posPool.OrderBy(_ => rnd.Next()).Take(rnd.Next(2, 4)).ToArray();
-                    var uhList = new List<UserHabitInfo>();
-                    foreach (var idx in chosenIdx)
-                    {
-                        var h  = habits[idx];
-                        var tv = idx == 0 ? 2000m : 1m;
-                        var mu = idx == 0 ? "ml"   : null;
-                        var uh = new UserHabit
+                        var user = new User
                         {
-                            UserId        = userId,
-                            HabitId       = h.Id,
-                            CategoryId    = h.CategoryId,
-                            FrequencyType = FrequencyType.Daily,
-                            TargetValue   = tv,
-                            MetricUnit    = mu,
-                            IsNegative    = false,
-                            ColorHex      = cats.First(c => c.Id == h.CategoryId).ColorHex,
-                            IconEmoji     = h.IconEmoji
+                            Id = userId,
+                            RoleId = int.TryParse(f[1], out int rid) ? rid : 1,
+                            Nickname = f[2],
+                            Email = email,
+                            PasswordHash = f[4],
+                            Timezone = tz
                         };
-                        db.UserHabits.Add(uh);
-                        uhList.Add(new UserHabitInfo(uh.Id, false, tv));
+                        db.Users.Add(user);
+
+                        db.UserSleepProfiles.Add(new UserSleepProfile
+                        {
+                            UserId = userId,
+                            TargetWakeTime = TimeOnly.TryParse(f[7], out var twt) ? twt : new TimeOnly(7, 0),
+                            BaseSleepHours = decimal.TryParse(f[8], NumberStyles.Any, CultureInfo.InvariantCulture, out decimal bsh) ? bsh : 8m,
+                            AbsoluteMinSleepHours = decimal.TryParse(f[9], NumberStyles.Any, CultureInfo.InvariantCulture, out decimal ams) ? Math.Max(ams, 0.1m) : 6m,
+                            ShiftStepMinutes = int.TryParse(f[10], out int ssm) ? ssm : 15,
+                            WeekendDeviationHours = decimal.TryParse(f[11], NumberStyles.Any, CultureInfo.InvariantCulture, out decimal wdh) ? wdh : 0m,
+                            CurrentWakeTime = TimeOnly.TryParse(f[12], out var cwt) ? cwt : new TimeOnly(7, 0),
+                            SleepDebtMinutes = int.TryParse(f[13], out int sdm) ? sdm : 0
+                        });
+
+                        userInfo = new UserInfo(userId, tz, new List<UserHabitInfo>());
+                        userMap[userId] = userInfo;
+                        count++;
                     }
 
-                    result.Add(new UserInfo(userId, tz, uhList));
-                    count++;
+                    // 2. Add Habit from this row
+                    var customName = f[14];
+                    var displayName = f[25];
+                    var title = !string.IsNullOrWhiteSpace(customName) ? customName : displayName;
+
+                    // Skip if no title at all
+                    if (string.IsNullOrWhiteSpace(title)) continue;
+
+                    bool isNeg = bool.TryParse(f[15], out bool b) && b;
+                    decimal? targetVal = decimal.TryParse(f[16], NumberStyles.Any, CultureInfo.InvariantCulture, out decimal tv) ? tv : null;
+                    var metricUnit = f[17];
+                    Enum.TryParse<FrequencyType>(f[18], true, out var freq);
+                    var colorHex = f[19];
+                    var iconEmoji = f[20];
+
+                    // Try to match with catalog habit
+                    habitLookup.TryGetValue(displayName, out var template);
+                    int catId = template?.CategoryId ?? (isNeg ? cats.Last().Id : healthCatId);
+
+                    var uh = new UserHabit
+                    {
+                        UserId = userId,
+                        HabitId = template?.Id,
+                        CategoryId = catId,
+                        CustomName = title, // Use the title from CSV as custom name
+                        FrequencyType = freq,
+                        TargetValue = targetVal,
+                        MetricUnit = string.IsNullOrWhiteSpace(metricUnit) ? null : metricUnit,
+                        IsNegative = isNeg,
+                        ColorHex = !string.IsNullOrWhiteSpace(colorHex) ? colorHex : (template?.ColorHex ?? cats.First(c => c.Id == catId).ColorHex),
+                        IconEmoji = !string.IsNullOrWhiteSpace(iconEmoji) ? iconEmoji : (template?.IconEmoji ?? cats.First(c => c.Id == catId).IconEmoji),
+                        IsArchived = bool.TryParse(f[23], out bool arch) && arch,
+                        CurrentStreak = int.TryParse(f[21], out int cs) ? cs : 0,
+                        LongestStreak = int.TryParse(f[22], out int ls) ? ls : 0
+                    };
+
+                    db.UserHabits.Add(uh);
+                    userInfo.UserHabits.Add(new UserHabitInfo(uh.Id, isNeg, targetVal));
 
                     if (count % batchSize == 0)
                     {
                         await db.SaveChangesAsync();
                         db.ChangeTracker.Clear();
-                        Console.WriteLine($"[Seeder]   Imported {count} users...");
+                        // Note: after Clear(), we'd need to re-attach or re-fetch users if we were modifying them, 
+                        // but here we only add new ones and their habits. Dictionary 'userMap' still holds the IDs.
                     }
                 }
 
-                if (count % batchSize != 0)
-                {
-                    await db.SaveChangesAsync();
-                    db.ChangeTracker.Clear();
-                }
+                await db.SaveChangesAsync();
+                db.ChangeTracker.Clear();
 
-                Console.WriteLine($"[Seeder] CSV import complete — {count} users.");
+                Console.WriteLine($"[Seeder] CSV import complete — {count} users and {userMap.Values.Sum(u => u.UserHabits.Count)} habits.");
             }
             catch (Exception ex)
             {
@@ -330,7 +372,7 @@ namespace HabitTracker.Data
                 db.ChangeTracker.AutoDetectChangesEnabled = true;
             }
 
-            return result;
+            return userMap.Values.ToList();
         }
 
         // ── Step 4: History generation ────────────────────────────────────────────
@@ -352,9 +394,6 @@ namespace HabitTracker.Data
 
             // ── Build sleep windows ──────────────────────────────────────────────
             // Index 0 = oldest night (daysInPast nights ago).
-            // Sleep starts at 22:00–02:00 local, lasts 6–9 h.
-            // Consecutive windows never overlap because sleep ends ≤ 11:00
-            // and the next window starts ≥ 22:00 the same evening.
             var sleepWindows = new (DateTime StartUtc, DateTime EndUtc)[daysInPast];
             for (int i = 0; i < daysInPast; i++)
             {
@@ -364,6 +403,26 @@ namespace HabitTracker.Data
                 var endLocal         = startLocal.AddHours(6 + rnd.NextDouble() * 3);  // +6 to +9 h
                 sleepWindows[i] = (ToUtcSafe(startLocal, tz), ToUtcSafe(endLocal, tz));
             }
+
+            // ── Generate Sleep Recommendation (for effectiveness tracking) ───────
+            // We generate this at the beginning of the history so that logs are post-rec.
+            var recTime = sleepWindows[0].StartUtc.AddHours(-1);
+            db.SleepRecommendations.Add(new SleepRecommendation
+            {
+                Id          = Guid.NewGuid(),
+                UserId      = userId,
+                GeneratedAt = recTime,
+                SleepPlan   = new SleepPlan
+                {
+                    Days = Enumerable.Range(0, 14).Select(d => new SleepPlanDay
+                    {
+                        Date               = DateOnly.FromDateTime(nowLocal.AddDays(-daysInPast + d)),
+                        PlannedSleepHours = 7.5m, // Threshold for ±0.5 adherence is [7.0, 8.0]
+                        PlannedWake        = new TimeOnly(7, 0),
+                        IdealBedtime       = new TimeOnly(23, 0)
+                    }).ToList()
+                }
+            });
 
             // Insert sleep logs
             foreach (var (s, e) in sleepWindows)
@@ -389,12 +448,14 @@ namespace HabitTracker.Data
                 // Habit executions
                 foreach (var uh in userHabits)
                 {
+                    bool executed = false;
                     if (uh.IsNegative)
                     {
                         // Log a "failure" when the user does NOT beat the negative habit.
                         // Lower completionRate → more failures (inverse relationship).
                         if (rnd.NextDouble() > completionRate)
                         {
+                            executed = true;
                             // Failures typically happen late in the waking day (80-95% mark)
                             var t = wakingStart.AddHours(wakingHours * (0.80 + rnd.NextDouble() * 0.15));
                             db.HabitExecutions.Add(new HabitExecution
@@ -409,6 +470,7 @@ namespace HabitTracker.Data
                     {
                         if (rnd.NextDouble() < completionRate)
                         {
+                            executed = true;
                             // Spread executions across the waking day (10%–80% of waking window)
                             var fraction    = 0.10 + rnd.NextDouble() * 0.70;
                             var t           = wakingStart.AddHours(wakingHours * fraction);
@@ -422,6 +484,19 @@ namespace HabitTracker.Data
                                 LoggedValue   = logged
                             });
                         }
+                    }
+
+                    // Update streaks (Yang: execution = success; Yin: execution = failure)
+                    bool success = uh.IsNegative ? !executed : executed;
+                    if (success)
+                    {
+                        uh.CurrentStreak++;
+                        if (uh.CurrentStreak > uh.LongestStreak)
+                            uh.LongestStreak = uh.CurrentStreak;
+                    }
+                    else
+                    {
+                        uh.CurrentStreak = 0;
                     }
                 }
 
@@ -456,6 +531,27 @@ namespace HabitTracker.Data
                     IsUnlocked      = true,
                     UnlockedAt      = unlockTime
                 });
+            }
+
+            // Sync final streaks back to UserHabit entities
+            foreach (var uhInfo in userHabits)
+            {
+                // Try to find in Local first, then DB
+                var entity = db.UserHabits.Local.FirstOrDefault(x => x.Id == uhInfo.Id);
+                if (entity == null)
+                {
+                    entity = db.UserHabits.FirstOrDefault(x => x.Id == uhInfo.Id);
+                }
+
+                if (entity != null)
+                {
+                    entity.CurrentStreak = uhInfo.CurrentStreak;
+                    entity.LongestStreak = uhInfo.LongestStreak;
+                    
+                    // Since AutoDetectChanges is false in the caller, we must explicitly 
+                    // tell the tracker that this entity is modified.
+                    db.Entry(entity).State = EntityState.Modified;
+                }
             }
         }
 
@@ -513,7 +609,13 @@ namespace HabitTracker.Data
         private static TimeZoneInfo GetTimeZoneOrUtc(string? timezone)
         {
             if (string.IsNullOrWhiteSpace(timezone)) return TimeZoneInfo.Utc;
-            try   { return TimeZoneInfo.FindSystemTimeZoneById(timezone); }
+            
+            // Map deprecated names
+            var sanitized = timezone.Equals("Europe/Kiev", StringComparison.OrdinalIgnoreCase) 
+                ? "Europe/Kyiv" 
+                : timezone;
+
+            try   { return TimeZoneInfo.FindSystemTimeZoneById(sanitized); }
             catch { return TimeZoneInfo.Utc; }
         }
 

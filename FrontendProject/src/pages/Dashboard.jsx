@@ -82,8 +82,8 @@ function computeStatusForDate(habitsData, executionsData, targetDate) {
       .filter((e) => {
         if (e.userHabitId !== h.id) return false;
         const execDate = new Date(e.executionTime);
-        const execDateStr = `${execDate.getFullYear()}-${String(execDate.getMonth() + 1).padStart(2, '0')}-${String(execDate.getDate()).padStart(2, '0')}`;
-        return execDateStr === localDateStr;
+        const execStr = `${execDate.getFullYear()}-${String(execDate.getMonth() + 1).padStart(2, '0')}-${String(execDate.getDate()).padStart(2, '0')}`;
+        return execStr === localDateStr;
       })
       .sort((a, b) => new Date(b.executionTime) - new Date(a.executionTime));
 
@@ -94,16 +94,14 @@ function computeStatusForDate(habitsData, executionsData, targetDate) {
     if (h.isNegative) {
       if (lastValue !== null && lastValue > 0) currentStatus = 'failed';
     } else {
-      if (h.targetValue > 1) {
-        if (totalSum >= h.targetValue) currentStatus = 'done';
-      } else {
-        if (lastValue === 1) currentStatus = 'done';
-      }
+      // For good habits, completion is reached if totalSum >= target (default 1)
+      const target = h.targetValue || 1;
+      if (totalSum >= target) currentStatus = 'done';
     }
 
     statusMap[h.id] = {
       status:      currentStatus,
-      loggedValue: h.targetValue > 1 ? totalSum : (lastValue || 0),
+      loggedValue: totalSum,
     };
   });
 
@@ -371,8 +369,10 @@ function HabitCard({ habit, statusInfo, isExpanded, isProcessing, isReadOnly, on
 
           {/* Main content row */}
           <div
-            className={`relative z-10 flex items-start gap-3 px-4 py-[15px] ${canExpand && !isProcessing ? 'cursor-pointer select-none' : ''}`}
-            onClick={canExpand && !isProcessing ? onToggleExpand : undefined}
+            className={`relative z-10 flex items-start gap-3 px-4 py-[15px] ${((canExpand || type === 'boolean') && !isProcessing && !isReadOnly) ? 'cursor-pointer select-none' : ''}`}
+            onClick={((canExpand || type === 'boolean') && !isProcessing && !isReadOnly) 
+              ? (type === 'boolean' ? (isPending ? onDone : onUndo) : onToggleExpand) 
+              : undefined}
           >
             <span className="mt-0.5 shrink-0 text-xl leading-none">{icon}</span>
 
@@ -832,9 +832,14 @@ export default function Dashboard() {
   // refreshData: fetches fresh habits + executions, recomputes status for
   // whatever date is current at call time (via selectedDateRef).
   const refreshData = useCallback(async () => {
+    const target = selectedDateRef.current;
+    // Fetch a wide window (30 days before/after) to ensure history is accurate
+    const fromDate = new Date(target); fromDate.setDate(fromDate.getDate() - 30);
+    const toDate   = new Date(target); toDate.setDate(toDate.getDate() + 30);
+
     const [habitsData, executionsData] = await Promise.all([
       fetchUserHabits(),
-      api.get('/api/user-habits/executions/recent?take=500').then((r) => r.data).catch(() => []),
+      api.get(`/api/user-habits/executions?from=${fromDate.toISOString()}&to=${toDate.toISOString()}`).then((r) => r.data).catch(() => []),
     ]);
     setHabits(habitsData);
     setAllExecutions(executionsData);
@@ -847,15 +852,12 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, [refreshData]);
 
-  // When selectedDate changes, recompute status from the cached executions
-  // without a new network round-trip.
+  // When selectedDate changes, refresh data to ensure we have executions for the new window.
   useEffect(() => {
     if (loading) return;
-    setHabitStatus(
-      computeStatusForDate(habitsRef.current, allExecutionsRef.current, selectedDate)
-    );
+    refreshData();
     setExpandedId(null);
-  }, [selectedDate, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pavilion grouping ──────────────────────────────────────────────────────
   const { pavilionGroups, unknownHabits } = useMemo(() => {
@@ -902,22 +904,40 @@ export default function Dashboard() {
   const lockHabit   = useCallback((id) => setProcessingHabits((s) => new Set(s).add(id)), []);
   const unlockHabit = useCallback((id) => setProcessingHabits((s) => { const n = new Set(s); n.delete(id); return n; }), []);
 
-  // ── Action handlers (DO NOT TOUCH the undo/log logic below) ──────────────
+  // ── Stable exec-time helper (reads date from ref to avoid stale closures) ──
+  const getExecTime = useCallback(() => {
+    const curDate = selectedDateRef.current;
+    if (curDate.toDateString() === today.toDateString()) {
+      return new Date().toISOString();
+    }
+    const d = new Date(curDate);
+    d.setHours(12, 0, 0, 0);
+    return d.toISOString();
+  }, [today]); // today is stable (empty useMemo deps); selectedDateRef is a ref
+
+  // ── Action handlers ───────────────────────────────────────────────────────
 
   const handleDone = useCallback(async (habitId) => {
     if (processingHabits.has(habitId)) return;
     lockHabit(habitId);
-    const prev = habitStatusRef.current[habitId];
-    setHabitStatus((s) => ({ ...s, [habitId]: { status: 'done', loggedValue: 1 } }));
+    const prev  = habitStatusRef.current[habitId];
+    const habit = habitsRef.current.find((h) => h.id === habitId);
+    const cur   = habitStatusRef.current[habitId] || { status: 'pending', loggedValue: 0 };
+    const newTotal = (cur.loggedValue || 0) + 1;
+    const target   = habit?.targetValue || 1;
+    setHabitStatus((s) => ({
+      ...s,
+      [habitId]: { status: newTotal >= target ? 'done' : 'pending', loggedValue: newTotal },
+    }));
     try {
-      await logHabitExecution(habitId, { loggedValue: 1 });
+      await logHabitExecution(habitId, { loggedValue: 1, executionTime: getExecTime() });
       await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
       unlockHabit(habitId);
     }
-  }, [processingHabits, lockHabit, unlockHabit]);
+  }, [processingHabits, lockHabit, unlockHabit, getExecTime]);
 
   const handleFail = useCallback(async (habitId) => {
     if (processingHabits.has(habitId)) return;
@@ -926,40 +946,39 @@ export default function Dashboard() {
     setHabitStatus((s) => ({ ...s, [habitId]: { status: 'failed', loggedValue: 1 } }));
     setExpandedId(null);
     try {
-      await logHabitExecution(habitId, { loggedValue: 1 });
+      await logHabitExecution(habitId, { loggedValue: 1, executionTime: getExecTime() });
       await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
       unlockHabit(habitId);
     }
-  }, [processingHabits, lockHabit, unlockHabit]);
+  }, [processingHabits, lockHabit, unlockHabit, getExecTime]);
 
   const handleUndo = useCallback(async (habitId) => {
     if (processingHabits.has(habitId)) return;
     const currentData = habitStatusRef.current[habitId];
-    if (!currentData) return;
-    if (currentData.loggedValue <= 0) return;
+    if (!currentData || currentData.loggedValue <= 0) return;
 
     lockHabit(habitId);
     const prev = currentData;
     setHabitStatus((s) => ({ ...s, [habitId]: { status: 'pending', loggedValue: 0 } }));
     setExpandedId(null);
     try {
-      await logHabitExecution(habitId, { loggedValue: -(currentData.loggedValue) });
+      await logHabitExecution(habitId, { loggedValue: -(currentData.loggedValue), executionTime: getExecTime() });
       await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
       unlockHabit(habitId);
     }
-  }, [processingHabits, lockHabit, unlockHabit]);
+  }, [processingHabits, lockHabit, unlockHabit, getExecTime]);
 
   const handleLog = useCallback(async (habitId, payload) => {
     if (processingHabits.has(habitId)) return;
     lockHabit(habitId);
     const prev  = habitStatusRef.current[habitId];
-    const habit = habits.find((h) => h.id === habitId);
+    const habit = habitsRef.current.find((h) => h.id === habitId);
 
     setHabitStatus((s) => {
       const cur      = s[habitId] || { status: 'pending', loggedValue: 0 };
@@ -968,14 +987,14 @@ export default function Dashboard() {
       return { ...s, [habitId]: { status: newTotal >= target ? 'done' : 'pending', loggedValue: newTotal } };
     });
     try {
-      await logHabitExecution(habitId, { loggedValue: payload.value });
+      await logHabitExecution(habitId, { loggedValue: payload.value, executionTime: getExecTime() });
       await refreshData();
     } catch {
       setHabitStatus((s) => ({ ...s, [habitId]: prev }));
     } finally {
       unlockHabit(habitId);
     }
-  }, [processingHabits, habits, lockHabit, unlockHabit]);
+  }, [processingHabits, lockHabit, unlockHabit, getExecTime]);
 
   const handleToggleExpand = useCallback((habitId) => {
     setExpandedId((prev) => (prev === habitId ? null : habitId));

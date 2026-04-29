@@ -668,7 +668,7 @@ const AchievementsTab = () => {
               {currentCondition?.needsHabit && (
                 <div className="space-y-1 p-4 bg-[#7AB8CC]/5 rounded-xl border-2 border-dashed border-[#7AB8CC]/30">
                   <label className="text-xs font-bold text-[#7AB8CC] uppercase">Link to Specific Habit</label>
-                  <select required className="w-full px-3 py-2.5 rounded-xl border border-gray-300 bg-white outline-none" value={modal.data.habitId || ''} onChange={e => setModal({...modal, data: {...modal.data, habitId: e.target.value}})}>
+                  <select className="w-full px-3 py-2.5 rounded-xl border border-gray-300 bg-white outline-none" value={modal.data.habitId || ''} onChange={e => setModal({...modal, data: {...modal.data, habitId: e.target.value}})}>
                     <option value="">-- Apply Globally (Any Habit) --</option>
                     {habits.map(h => <option key={h.id} value={h.id}>{h.title}</option>)}
                   </select>

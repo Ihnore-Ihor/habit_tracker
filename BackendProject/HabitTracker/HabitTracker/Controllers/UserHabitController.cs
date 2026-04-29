@@ -84,6 +84,18 @@ namespace HabitTracker.Controllers
             return Ok(await _service.GetRecentExecutionsAsync(userId, take, ct));
         }
 
+        /// <summary>Returns executions within a specific date range (UTC).</summary>
+        [HttpGet("executions")]
+        [ProducesResponseType(typeof(IReadOnlyList<HabitExecutionDto>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<HabitExecutionDto>>> GetExecutions(
+            [FromQuery] DateTime from,
+            [FromQuery] DateTime to,
+            CancellationToken ct = default)
+        {
+            var userId = User.GetUserId();
+            return Ok(await _service.GetExecutionsAsync(userId, from, to, ct));
+        }
+
         /// <summary>Updates an existing habit subscription's settings.</summary>
         [HttpPut("{id:guid}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]

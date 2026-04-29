@@ -1,0 +1,2 @@
+DROP FUNCTION IF EXISTS fn_calc_current_streak(UUID, BOOLEAN, TEXT);
+DROP FUNCTION IF EXISTS fn_calc_longest_streak(UUID, BOOLEAN, TEXT);

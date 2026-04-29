@@ -88,7 +88,14 @@ BEGIN
         END IF;
     ELSE
         IF v_sum_prior <= 0 AND v_sum_total > 0 THEN
+            -- Failure event: reset current streak to 0.
             UPDATE public.user_habits SET current_streak = 0 WHERE id = NEW.user_habit_id;
+        ELSIF v_sum_prior > 0 AND v_sum_total <= 0 THEN
+            -- Undo event: recalculate the current streak from history.
+            -- This restores the streak if the only failure for that day was negated.
+            UPDATE public.user_habits 
+            SET current_streak = public.fn_calc_current_streak(id, true, NULL)
+            WHERE id = NEW.user_habit_id;
         END IF;
     END IF;
 
