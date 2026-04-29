@@ -85,10 +85,90 @@ const AnalyticsView = () => {
     pixels: []
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [isPixelsLoading, setIsPixelsLoading] = useState(false);
 
+  // 1. Fetch Global Analytics (Categories & Insights) - Only once on mount
   useEffect(() => {
-    const fetchAllAnalytics = async () => {
+    const fetchGlobalAnalytics = async () => {
       setIsLoading(true);
+      try {
+        const [catsRes, habitsRes, corrsRes] = await Promise.all([
+          api.get('/api/analytics/categories').catch(() => ({ data: [] })),
+          api.get('/api/analytics/habits').catch(() => ({ data: [] })),
+          api.get('/api/analytics/correlations').catch(() => ({ data: [] }))
+        ]);
+
+        const habits = habitsRes.data || [];
+
+        const strengthLabel = (abs) => {
+          if (abs >= 0.2) return 'Strong';
+          if (abs >= 0.1) return 'Moderate';
+          return 'Weak';
+        };
+
+        const allInsights = [];
+        (corrsRes.data || []).forEach(corr => {
+          const sampleDays      = corr.sampleDays      ?? corr.SampleDays      ?? 0;
+          const pearsonPleasure = corr.pearsonPleasure  ?? corr.PearsonPleasure;
+          const pearsonArousal  = corr.pearsonArousal   ?? corr.PearsonArousal;
+          const habitId         = corr.userHabitId      ?? corr.UserHabitId;
+
+          if (sampleDays < 1) return;
+
+          const habit = habits.find(h =>
+            (h.userHabitId ?? h.UserHabitId ?? h.id ?? h.Id) === habitId
+          );
+          const habitName = habit
+            ? (habit.displayName ?? habit.DisplayName ?? habit.customName ?? habit.name ?? 'this habit').toLowerCase()
+            : 'specific habits';
+
+          if (pearsonPleasure != null && Math.abs(pearsonPleasure) > 0.02) {
+            allInsights.push({
+              abs: Math.abs(pearsonPleasure),
+              text: pearsonPleasure > 0
+                ? `Your mood is higher on days you do ${habitName}`
+                : `Your mood tends to be lower when doing ${habitName}`,
+              value: `${pearsonPleasure > 0 ? '+' : ''}${(pearsonPleasure * 100).toFixed(0)}%`,
+              badge: strengthLabel(Math.abs(pearsonPleasure)),
+              color: pearsonPleasure > 0 ? '#8FBC8F' : '#C85A54',
+            });
+          }
+
+          if (pearsonArousal != null && Math.abs(pearsonArousal) > 0.02) {
+            allInsights.push({
+              abs: Math.abs(pearsonArousal),
+              text: pearsonArousal > 0
+                ? `You feel more energized & focused with ${habitName}`
+                : `${habitName} helps you feel calm and relaxed`,
+              value: `${pearsonArousal > 0 ? '+' : ''}${(pearsonArousal * 100).toFixed(0)}%`,
+              badge: strengthLabel(Math.abs(pearsonArousal)),
+              color: pearsonArousal > 0 ? '#7AB8CC' : '#A3AD7C',
+            });
+          }
+        });
+
+        const generatedInsights = allInsights
+          .sort((a, b) => b.abs - a.abs)
+          .slice(0, 4);
+
+        setDashboardData(prev => ({
+          ...prev,
+          categories: catsRes.data || [],
+          insights: generatedInsights,
+        }));
+      } catch (err) {
+        console.error("Failed to fetch global analytics", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchGlobalAnalytics();
+  }, []);
+
+  // 2. Fetch Pixel Data (Daily) - Whenever date range changes
+  useEffect(() => {
+    const fetchPixels = async () => {
+      setIsPixelsLoading(true);
       try {
         const firstDay = new Date(currentDate.getFullYear(), isYearView ? 0 : currentDate.getMonth(), 1);
         const lastDay = new Date(currentDate.getFullYear(), isYearView ? 11 : currentDate.getMonth() + 1, 0);
@@ -96,52 +176,19 @@ const AnalyticsView = () => {
         const startDateStr = firstDay.toISOString().split('T')[0];
         const endDateStr = lastDay.toISOString().split('T')[0];
 
-        const [catsRes, habitsRes, corrsRes, dailyRes] = await Promise.all([
-          api.get('/api/analytics/categories').catch(() => ({ data: [] })),
-          api.get('/api/analytics/habits').catch(() => ({ data: [] })),
-          api.get('/api/analytics/correlations').catch(() => ({ data: [] })),
-          api.get(`/api/analytics/daily?startDate=${startDateStr}&endDate=${endDateStr}`).catch(() => ({ data: [] }))
-        ]);
-
-        // --- ГЕНЕРАЦІЯ ІНСАЙТІВ ---
-        const generatedInsights = [];
-        const habits = habitsRes.data || [];
+        const dailyRes = await api.get(`/api/analytics/daily?startDate=${startDateStr}&endDate=${endDateStr}`).catch(() => ({ data: [] }));
         
-        (corrsRes.data || []).forEach(corr => {
-          // Знижено поріг до 2 днів для тестування (раніше було 3)
-          if (corr.sampleDays < 2) return; 
-          
-          const habit = habits.find(h => h.userHabitId === corr.userHabitId);
-          const habitName = habit ? habit.displayName.toLowerCase() : "this habit";
-
-          // Знижено поріг Пірсона до 0.2 (раніше 0.4), щоб інсайти з'являлися частіше
-          if (corr.pearsonPleasure > 0.2) {
-            generatedInsights.push({ text: `Your mood is noticeably higher on days you do ${habitName}`, value: `+${(corr.pearsonPleasure * 100).toFixed(0)}%`, color: '#8FBC8F' });
-          } else if (corr.pearsonPleasure < -0.2) {
-            generatedInsights.push({ text: `Your mood tends to drop when doing ${habitName}`, value: `${(corr.pearsonPleasure * 100).toFixed(0)}%`, color: '#C85A54' });
-          }
-
-          if (corr.pearsonArousal > 0.2) {
-            generatedInsights.push({ text: `You experience higher energy & focus with ${habitName}`, value: `+${(corr.pearsonArousal * 100).toFixed(0)}%`, color: '#7AB8CC' });
-          } else if (corr.pearsonArousal < -0.2) {
-            generatedInsights.push({ text: `${habitName} helps you stay relaxed and calm`, value: `Calm`, color: '#A3AD7C' });
-          }
-        });
-
-        setDashboardData({
-          categories: catsRes.data || [],
-          insights: generatedInsights.slice(0, 4), // Показуємо топ 4 інсайти
+        setDashboardData(prev => ({
+          ...prev,
           pixels: dailyRes.data || []
-        });
-
+        }));
       } catch (err) {
-        console.error("Failed to fetch analytics", err);
+        console.error("Failed to fetch daily pixels", err);
       } finally {
-        setIsLoading(false);
+        setIsPixelsLoading(false);
       }
     };
-
-    fetchAllAnalytics();
+    fetchPixels();
   }, [currentDate, isYearView]);
 
   const handlePrev = () => {
@@ -273,8 +320,9 @@ const AnalyticsView = () => {
               <p className="flex-1 text-[13px] text-[#364153] leading-relaxed">
                 {insight.text}
               </p>
-              <div className="px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0" style={{ backgroundColor: `${insight.color}15`, color: insight.color }}>
-                {insight.value}
+              <div className="flex flex-col items-center px-3 py-1.5 rounded-lg shrink-0 text-center" style={{ backgroundColor: `${insight.color}15`, color: insight.color }}>
+                <span className="text-[11px] font-bold">{insight.value}</span>
+                {insight.badge && <span className="text-[9px] opacity-70 font-medium">{insight.badge}</span>}
               </div>
             </div>
           )) : (
@@ -319,39 +367,46 @@ const AnalyticsView = () => {
           </div>
         </div>
 
-        {/* Сітка */}
-        <div className={`grid gap-2 ${isYearView ? 'grid-cols-4' : 'grid-cols-7'}`}>
-          {Array.from({ length: isYearView ? 12 : daysInMonth }).map((_, i) => {
-             let dayData = null;
-             if (isYearView) {
-               const monthStr = `${currentDate.getFullYear()}-${String(i + 1).padStart(2, '0')}`;
-               dayData = dashboardData.pixels.find(d => d.localDate.startsWith(monthStr));
-             } else {
-               const dayStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(i + 1).padStart(2,'0')}`;
-               dayData = dashboardData.pixels.find(d => d.localDate === dayStr);
-             }
+        {/* Сітка з лоадером */}
+        <div className="relative">
+          {isPixelsLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-rice/50 backdrop-blur-[1px] rounded-xl">
+              <div className="w-6 h-6 border-2 border-[#5B7FA6] border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+          <div className={`grid gap-2 ${isYearView ? 'grid-cols-4' : 'grid-cols-7'} ${isPixelsLoading ? 'opacity-50' : ''}`}>
+            {Array.from({ length: isYearView ? 12 : daysInMonth }).map((_, i) => {
+               let dayData = null;
+               if (isYearView) {
+                 const monthStr = `${currentDate.getFullYear()}-${String(i + 1).padStart(2, '0')}`;
+                 dayData = dashboardData.pixels.find(d => d.localDate.startsWith(monthStr));
+               } else {
+                 const dayStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(i + 1).padStart(2,'0')}`;
+                 dayData = dashboardData.pixels.find(d => d.localDate === dayStr);
+               }
 
-             const hasData = dayData && dayData.pCentroid != null;
+               const hasData = dayData && dayData.pCentroid != null;
 
-             return (
-              <div key={i} className="flex flex-col items-center gap-1">
-                {hasData ? (
-                  <MorphBlob 
-                    pleasure={dayData.pCentroid} 
-                    arousal={dayData.aCentroid || 0} 
-                    dominance={dayData.dCentroid || 0}
-                    size={38} 
-                  />
-                ) : (
-                  <div className="w-[38px] h-[38px] bg-[#E8E8E8]/50 rounded-[8px]" />
-                )}
-                
-                <span className="text-[9px] text-gray-400 font-medium mt-1">
-                  {isYearView ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i] : i + 1}
-                </span>
-              </div>
-            );
-          })}
+               return (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  {hasData ? (
+                    <MorphBlob 
+                      pleasure={dayData.pCentroid} 
+                      arousal={dayData.aCentroid || 0} 
+                      dominance={dayData.dCentroid || 0}
+                      size={38} 
+                    />
+                  ) : (
+                    <div className="w-[38px] h-[38px] bg-[#E8E8E8]/50 rounded-[8px]" />
+                  )}
+                  
+                  <span className="text-[9px] text-gray-400 font-medium mt-1">
+                    {isYearView ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i] : i + 1}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 

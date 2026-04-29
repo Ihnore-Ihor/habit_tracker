@@ -1,0 +1,59 @@
+======================================================================
+STRUCTURAL COMPARISON: real.csv  vs  real_en.csv
+======================================================================
+
+  Row count — real.csv    :     221
+  Row count — real_en.csv :     221
+  Row counts match        : ✓ YES
+
+  Column count — real.csv    : 35
+  Column count — real_en.csv : 35
+  Column order/names match   : ✓ YES
+
+  Columns (in order):
+     1. id
+     2. role_id
+     3. nickname
+     4. email
+     5. password_hash
+     6. timezone
+     7. updated_at
+     8. target_wake_time
+     9. base_sleep_hours
+    10. absolute_min_sleep_hours
+    11. shift_step_minutes
+    12. weekend_deviation_hours
+    13. current_wake_time
+    14. sleep_debt_minutes
+    15. custom_name
+    16. is_negative
+    17. target_value
+    18. metric_unit
+    19. frequency_type
+    20. color_hex
+    21. icon_emoji
+    22. current_streak
+    23. longest_streak
+    24. is_archived
+    25. schedule_rule
+    26. display_name
+    27. total_executions
+    28. executions_last_30_days
+    29. last_execution_at
+    30. sleep_start
+    31. sleep_end
+    32. sleep_quality
+    33. tags
+    34. generated_at
+    35. sleep_plan
+
+  ✓ All non-translated columns are byte-for-byte identical.
+
+
+======================================================================
+CYRILLIC RESIDUE SCAN: real_en.csv
+======================================================================
+
+  ✓ No Cyrillic characters found anywhere in real_en.csv!
+
+Verification complete.

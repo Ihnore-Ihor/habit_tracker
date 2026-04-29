@@ -95,7 +95,11 @@ namespace HabitTracker.Application.Services.Sleep
             CancellationToken ct = default)
         {
             var startDate = from.HasValue ? DateTime.SpecifyKind(from.Value, DateTimeKind.Utc) : DateTime.UtcNow.AddDays(-7);
-            var endDate = to.HasValue ? DateTime.SpecifyKind(to.Value, DateTimeKind.Utc) : DateTime.UtcNow;
+            // Set end-of-day so that sleep logs starting any time on the 'to' date are included.
+            // Without this fix, `to=2026-04-30` is parsed as 00:00:00 and any log from April 30 after midnight is excluded.
+            var endDate = to.HasValue
+                ? DateTime.SpecifyKind(to.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc)
+                : DateTime.UtcNow;
 
             return await _db.SleepLogs.AsNoTracking()
                 .Where(s => s.UserId == userId && s.SleepStart >= startDate && s.SleepStart <= endDate)

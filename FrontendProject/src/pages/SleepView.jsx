@@ -448,7 +448,18 @@ export default function SleepView() {
   const dates = useMemo(() => getWindowDates(period, anchor), [period, anchor]);
 
   const fromStr = useMemo(() => localDateKey(dates[0]), [dates]);
-  const toStr   = useMemo(() => localDateKey(dates[dates.length - 1]), [dates]);
+  // For '6 Months' / 'Year' the dates[] array holds the 1st of each month.
+  // We must request data through the LAST day of that month, otherwise the
+  // API call cuts off at the 1st and the remaining days are never fetched.
+  const toStr = useMemo(() => {
+    const last = dates[dates.length - 1];
+    if (period === '6 Months' || period === 'Year') {
+      // last day of that month
+      const lastDay = new Date(last.getFullYear(), last.getMonth() + 1, 0);
+      return localDateKey(lastDay);
+    }
+    return localDateKey(last);
+  }, [dates, period]);
 
   // ФІКС ПОНЕДІЛКА: Зміщуємо дату запиту на 1 день назад (на Неділю), 
   // щоб гарантовано отримати сон, який почався в неділю, а закінчився в понеділок
@@ -852,9 +863,9 @@ export default function SleepView() {
 
             {/* Рендер днів (Стовпці) */}
             <div className="absolute top-0 bottom-0 left-10 right-0 flex justify-between">
-              {Array.from({ length: 7 }).map((_, i) => {
+              {dates.map((date, i) => {
                 // 1. Визначаємо дату стовпця (беремо з нашого масиву dates)
-                const targetDate = new Date(dates[i]);
+                const targetDate = new Date(date);
                 targetDate.setHours(0, 0, 0, 0);
                 const targetTime = targetDate.getTime();
 
@@ -941,7 +952,7 @@ export default function SleepView() {
                           initial={{ opacity: 0, y: 10, scale: 0.95 }} 
                           animate={{ opacity: 1, y: 0, scale: 1 }} 
                           exit={{ opacity: 0, scale: 0.95 }}
-                          className={`absolute bottom-full mb-4 z-[60] w-44 bg-white p-3 rounded-xl shadow-xl border border-[#E5E7EB] ${i > 4 ? 'right-0' : 'left-0'}`}
+                          className={`absolute bottom-full mb-4 z-[60] w-44 bg-white p-3 rounded-xl shadow-xl border border-[#E5E7EB] ${i > dates.length - 3 ? 'right-0' : 'left-0'}`}
                           style={{ bottom: `${100 - (selectedLog.isPlan ? recTop : barTop)}%` }}
                         >
                           <div className="flex justify-between items-center mb-2">
@@ -1000,9 +1011,9 @@ export default function SleepView() {
                       )}
                     </AnimatePresence>
 
-                    {/* Підпис дня тижня внизу */}
+                    {/* Підпис осі X (динамічний залежно від period) */}
                     <div className={`absolute -bottom-6 text-[9px] ${isSelected ? 'text-[#364153] font-bold' : 'text-[#6B7280]'}`}>
-                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]}
+                      {colLabel(period, date, i)}
                     </div>
                   </div>
                 );
