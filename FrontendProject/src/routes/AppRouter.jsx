@@ -8,8 +8,8 @@ import Login from '../pages/auth/Login.jsx';
 import Register from '../pages/auth/Register.jsx';
 import Dashboard from '../pages/Dashboard.jsx';
 import Profile from '../pages/Profile.jsx';
-import ContentManagerHome from '../pages/ContentManagerHome.jsx';
-import AnalystHome from '../pages/AnalystHome.jsx';
+import ContentManagerView from '../pages/ContentManagerView.jsx';
+import AnalystDashboardView from '../pages/AnalystDashboardView.jsx';
 import BodyMindPage from '../pages/BodyMindPage.jsx';
 import StatsPage from '../pages/StatsPage.jsx';
 import AchievementsPage from '../pages/AchievementsPage.jsx';
@@ -33,7 +33,7 @@ export default function AppRouter() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute allow={[ROLES.USER]}>
+            <ProtectedRoute allow={[ROLES.USER, ROLES.ANALYST, ROLES.CONTENT_MANAGER]}>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -41,7 +41,7 @@ export default function AppRouter() {
         <Route
           path="/profile"
           element={
-            <ProtectedRoute allow={[ROLES.USER]}>
+            <ProtectedRoute allow={[ROLES.USER, ROLES.ANALYST, ROLES.CONTENT_MANAGER]}>
               <Profile />
             </ProtectedRoute>
           }
@@ -49,7 +49,7 @@ export default function AppRouter() {
         <Route
           path="/body-mind"
           element={
-            <ProtectedRoute allow={[ROLES.USER]}>
+            <ProtectedRoute allow={[ROLES.USER, ROLES.ANALYST, ROLES.CONTENT_MANAGER]}>
               <BodyMindPage />
             </ProtectedRoute>
           }
@@ -57,7 +57,7 @@ export default function AppRouter() {
         <Route
           path="/stats"
           element={
-            <ProtectedRoute allow={[ROLES.USER]}>
+            <ProtectedRoute allow={[ROLES.USER, ROLES.ANALYST, ROLES.CONTENT_MANAGER]}>
               <StatsPage />
             </ProtectedRoute>
           }
@@ -65,7 +65,7 @@ export default function AppRouter() {
         <Route
           path="/achievements"
           element={
-            <ProtectedRoute allow={[ROLES.USER]}>
+            <ProtectedRoute allow={[ROLES.USER, ROLES.ANALYST, ROLES.CONTENT_MANAGER]}>
               <AchievementsPage />
             </ProtectedRoute>
           }
@@ -74,7 +74,7 @@ export default function AppRouter() {
           path="/catalog"
           element={
             <ProtectedRoute allow={[ROLES.CONTENT_MANAGER]}>
-              <ContentManagerHome />
+              <ContentManagerView />
             </ProtectedRoute>
           }
         />
@@ -82,7 +82,7 @@ export default function AppRouter() {
           path="/analytics"
           element={
             <ProtectedRoute allow={[ROLES.ANALYST]}>
-              <AnalystHome />
+              <AnalystDashboardView />
             </ProtectedRoute>
           }
         />

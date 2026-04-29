@@ -17,6 +17,9 @@ namespace HabitTracker.Domain.Entities
         [Required, MaxLength(100)]
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>Optional long-form description of the category's scope and intent.</summary>
+        public string? Description { get; set; }
+
         /// <summary>UI accent colour as a HEX string (e.g. "#22C55E").</summary>
         [Required, MaxLength(7)]
         public string ColorHex { get; set; } = string.Empty;

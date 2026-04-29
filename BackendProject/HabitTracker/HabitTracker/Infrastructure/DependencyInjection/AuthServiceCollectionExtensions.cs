@@ -1,9 +1,11 @@
 using System.Text;
 using HabitTracker.Application.Services.Affect;
 using HabitTracker.Application.Services.Analytics;
+using HabitTracker.Application.Services.Analyst;
 using HabitTracker.Application.Services.Auth;
 using HabitTracker.Application.Services.Awards;
 using HabitTracker.Application.Services.Catalog;
+using HabitTracker.Application.Services.ContentManager;
 using HabitTracker.Application.Services.Sleep;
 using HabitTracker.Application.Services.UserHabits;
 using HabitTracker.Infrastructure.Authentication;
@@ -100,6 +102,20 @@ namespace HabitTracker.Infrastructure.DependencyInjection
         public static IServiceCollection AddAwards(this IServiceCollection services)
         {
             services.AddScoped<IAwardsService, AwardsService>();
+            return services;
+        }
+
+        /// <summary>Registers <see cref="IAnalystDashboardService"/> (global habit stats, sleep effectiveness, proposals).</summary>
+        public static IServiceCollection AddAnalyst(this IServiceCollection services)
+        {
+            services.AddScoped<IAnalystDashboardService, AnalystDashboardService>();
+            return services;
+        }
+
+        /// <summary>Registers <see cref="IContentManagerService"/> (proposals queue, catalog management, achievements).</summary>
+        public static IServiceCollection AddContentManager(this IServiceCollection services)
+        {
+            services.AddScoped<IContentManagerService, ContentManagerService>();
             return services;
         }
     }

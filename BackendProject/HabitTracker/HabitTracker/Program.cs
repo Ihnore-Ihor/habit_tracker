@@ -35,7 +35,12 @@ namespace HabitTracker
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(dataSource));
 
-            builder.Services.AddControllers();
+            builder.Services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    // Це змусить .NET розуміти рядки "TOTAL_METRIC_VOLUME" як значення Enum
+                    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+                });
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(c =>
             {
@@ -78,6 +83,12 @@ namespace HabitTracker
 
             // Phase 4 — Gamification / Awards (achievement catalog + personal progress + rarity).
             builder.Services.AddAwards();
+
+            // Phase 5 — Analyst dashboard (global habit stats, sleep effectiveness, proposals).
+            builder.Services.AddAnalyst();
+
+            // Phase 6 — Content manager (proposal queue, catalog CRUD, achievements).
+            builder.Services.AddContentManager();
 
             var app = builder.Build();
 

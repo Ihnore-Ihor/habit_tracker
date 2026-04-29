@@ -7,6 +7,7 @@ const ROLE_CLAIMS = [
 ];
 
 const NAME_CLAIMS = [
+  'nickname',
   'name',
   'unique_name',
   'preferred_username',

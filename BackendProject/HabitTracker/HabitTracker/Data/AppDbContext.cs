@@ -45,11 +45,17 @@ namespace HabitTracker.Data
         /// <summary>Transactional outbox — populated by <c>IOutboxWriter</c>, drained by <c>OutboxDispatcherService</c>.</summary>
         public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
-        /// <summary>
-        /// Read-only projection of <c>mvw_achievement_rarity</c>.
-        /// Keyless — do not add migrations for this set.
-        /// </summary>
+        /// <summary>Read-only projection of <c>mvw_achievement_rarity</c>. Keyless — do not add migrations for this set.</summary>
         public DbSet<AchievementRarityView> AchievementRarityViews => Set<AchievementRarityView>();
+
+        /// <summary>Read-only projection of <c>mvw_global_habit_stats</c>. Keyless.</summary>
+        public DbSet<GlobalHabitStatsView> GlobalHabitStatsViews => Set<GlobalHabitStatsView>();
+
+        /// <summary>Read-only projection of <c>mvw_sleep_recommendation_effectiveness</c>. Keyless.</summary>
+        public DbSet<SleepEffectivenessView> SleepEffectivenessViews => Set<SleepEffectivenessView>();
+
+        /// <summary>Read-only projection of <c>mvw_analyst_proposal_impact</c>. Keyless.</summary>
+        public DbSet<ProposalImpactView> ProposalImpactViews => Set<ProposalImpactView>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -89,6 +95,24 @@ namespace HabitTracker.Data
                 e.ToView("mvw_achievement_rarity");
                 e.Property(v => v.AchievementId).HasColumnName("achievement_id");
                 e.Property(v => v.UnlockRatePct).HasColumnName("unlock_rate_pct");
+            });
+
+            modelBuilder.Entity<GlobalHabitStatsView>(e =>
+            {
+                e.HasNoKey();
+                e.ToView("mvw_global_habit_stats");
+            });
+
+            modelBuilder.Entity<SleepEffectivenessView>(e =>
+            {
+                e.HasNoKey();
+                e.ToView("mvw_sleep_recommendation_effectiveness");
+            });
+
+            modelBuilder.Entity<ProposalImpactView>(e =>
+            {
+                e.HasNoKey();
+                e.ToView("mvw_analyst_proposal_impact");
             });
 
             // 5. Cross-cutting conventions — must run LAST so explicit per-entity names and types win.

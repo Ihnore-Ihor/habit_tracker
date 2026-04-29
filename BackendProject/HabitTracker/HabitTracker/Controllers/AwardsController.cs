@@ -11,7 +11,7 @@ namespace HabitTracker.Controllers
     /// All entries are returned, including ones the caller has never started (progress = 0).
     /// </summary>
     [ApiController]
-    [Route("api/awards")] // САМЕ ЦЕЙ ШЛЯХ ШУКАЄ REACT
+    [Route("api/awards")]
     [Authorize]
     public sealed class AwardsController : ControllerBase
     {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useAuth } from '../context/AuthContext.jsx';
+import { useAuth, ROLES } from '../context/AuthContext.jsx';
+import { useNavigate } from 'react-router-dom';
 import BottomNav from '../components/common/BottomNav.jsx';
 import chineseArc from '../assets/chinese-arc.svg';
 import { fetchUserHabits, fetchRecentExecutions } from '../api/habits.js';
@@ -41,6 +42,7 @@ const ChevronRight = () => (
 
 export default function Profile() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [executions,     setExecutions]     = useState([]);
   const [habits,         setHabits]         = useState([]);
@@ -103,7 +105,7 @@ export default function Profile() {
         
         <div className="relative z-10 mx-auto flex max-w-md flex-col items-center justify-center gap-1.5">
            <h1 className="text-[22px] font-serif font-[500] tracking-wide text-[#364153]">
-             {user?.name || 'Jade Pavilion'}
+             {user?.name || 'Your Sanctuary'}
            </h1>
            <p className="text-[12px] text-[#6A7282]">
              {memberSinceYear ? `Member since ${memberSinceYear}` : 'Harmony Member'}
@@ -200,6 +202,35 @@ export default function Profile() {
             )}
           </div>
         </motion.div>
+
+        {/* ── Staff Tools (Conditionally rendered) ── */}
+        {(user?.role === ROLES.ANALYST || user?.role === ROLES.CONTENT_MANAGER) && (
+          <motion.div variants={itemVar} className="mb-6">
+            <div className="mb-3 flex items-center gap-3">
+               <h2 className="text-[12px] font-[600] uppercase tracking-[1.2px] text-[#7AB8CC]">
+                 Staff Tools
+               </h2>
+               <div className="flex-1 h-px bg-[#7AB8CC]/30" />
+            </div>
+            <div className="overflow-hidden rounded-[14px] bg-[#7AB8CC]/5" style={{ outline: '1.5px solid rgba(122, 184, 204, 0.30)', outlineOffset: '-1.5px' }}>
+              <button
+                type="button"
+                onClick={() => navigate(user.role === ROLES.ANALYST ? '/analytics' : '/catalog')}
+                className="w-full flex items-center justify-between px-5 py-4 transition-colors active:bg-[#7AB8CC]/10"
+              >
+                <div className="flex flex-col items-start">
+                  <span className="text-[14px] font-[500] text-[#364153]">
+                    {user.role === ROLES.ANALYST ? 'Global Analyst Dashboard' : 'Global Content & Proposals'}
+                  </span>
+                  <span className="text-[11px] text-[#6A7282]">
+                    {user.role === ROLES.ANALYST ? 'Access platform-wide data and proposals' : 'Manage habits, achievements and analyst proposals'}
+                  </span>
+                </div>
+                <ChevronRight />
+              </button>
+            </div>
+          </motion.div>
+        )}
 
         {/* ── Account ── */}
         <motion.div variants={itemVar} className="mb-6">
@@ -304,8 +335,17 @@ export default function Profile() {
                 </select>
               )}
             </div>
-
           </div>
+        </motion.div>
+
+        {/* ── Logout ── */}
+        <motion.div variants={itemVar} className="mb-10">
+          <button
+            onClick={logout}
+            className="w-full rounded-[14px] bg-red-50 py-4 text-[14px] font-semibold text-garnet shadow-sm transition-all active:scale-[0.98] outline outline-1 outline-red-200"
+          >
+            Sign Out
+          </button>
         </motion.div>
 
         {/* ── App identity ── */}
